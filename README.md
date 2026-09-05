@@ -28,9 +28,9 @@ No parts ordered yet. Hardware purchase and 3D printing start once walking is co
 
 Two paths referenced below are **not** in this repository:
 
-- **`Open_Duck_Playground/`** — the RL training environment. It lives in a
-  [fork of `apirrone/Open_Duck_Playground`](https://github.com/apirrone/Open_Duck_Playground);
-  see *Attribution & License* below. Clone it next to this repo.
+- **`Open_Duck_Playground/`** — the RL training environment. It lives in a separate
+  [fork of `apirrone/Open_Duck_Playground`](https://github.com/soyeon24/Open_Duck_Playground)
+  (branch `standup-task-and-fixes`); see *Attribution & License* below. Clone it next to this repo.
 - **`BEST_WALK_ONNX_2.onnx`** — the community-validated walking policy used as a baseline.
   Not redistributed here (see below). Obtain it from
   [Open_Duck_Mini_Runtime](https://github.com/apirrone/Open_Duck_Mini_Runtime) or the project Discord.
