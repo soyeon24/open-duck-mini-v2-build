@@ -1,0 +1,27 @@
+# --- virtualenvs / caches ---
+.venv/
+.venv-train-cpu/
+__pycache__/
+*.py[cod]
+
+# --- secrets: never commit ---
+*.pem
+*.key
+*.ppk
+id_rsa*
+
+# --- work artifacts ---
+logs/
+*.orig
+*.bak
+*.tmp
+
+# --- separate repository ---
+# Fork of apirrone/Open_Duck_Playground. Has its own .git; tracked there, not here.
+Open_Duck_Playground/
+
+# --- upstream binary, not redistributed ---
+# Community walking policy. The source repo publishes no license, so this project
+# links to it instead of redistributing it.
+# Get it from: https://github.com/apirrone/Open_Duck_Mini_Runtime
+BEST_WALK_ONNX_2.onnx
