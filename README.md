@@ -2,10 +2,17 @@
 
 Building a bipedal walking duck robot from scratch.
 
-The folder is named `Microduck` for historical reasons, but the actual build target is
-**[Open Duck Mini v2](https://github.com/apirrone/Open_Duck_Mini)**. (Pollen Robotics'
-Microduck open-sources the software only — CAD and BOM are closed — so this project
-switched to the fully open-source alternative.)
+> ### Two ducks, one folder
+> The folder is named `Microduck` for historical reasons, but the actual build target is the
+> **42 cm [Open Duck Mini v2](https://github.com/apirrone/Open_Duck_Mini)** — *not* Pollen
+> Robotics' 25 cm Microduck. When the two get mixed up, read **[`ROBOTS.md`](ROBOTS.md)**:
+> it is a one-screen card telling them apart, including the parts that look alike
+> (Pi Zero 2 W vs Pico 2 W, STS3215 vs ST3215, 626ZZ vs 608ZZ).
+
+Why not Microduck: its mechanical STLs and MJCF *are* published under Apache-2.0, and its
+compute board is an off-the-shelf Radxa Zero 3W — but there is no BOM, no wiring diagram, no
+assembly guide, and no schematic or gerber for its custom HAT PCB, so it cannot be self-built.
+Full evidence in [`microduck_ref/README.md`](microduck_ref/README.md).
 
 **Current stage: 1 — "make it walk in simulation first" (cost: $0).**
 No parts ordered yet. Hardware purchase and 3D printing start once walking is confirmed in sim.
@@ -17,12 +24,15 @@ No parts ordered yet. Hardware purchase and 3D printing start once walking is co
 | Path | Contents |
 |---|---|
 | `README.md` | This file. The map. |
+| `ROBOTS.md` | **42 cm vs 25 cm — which duck is which.** Read when the two get confused. (Korean) |
+| `HARDWARE_PREP.md` | Ordering, BOM, assembly pitfalls, printing, vision plan. Everything about parts. (Korean) |
 | `NEXT_STEPS.md` | Plan, decision log, hardware specs, cluster access. **Read this first when resuming.** (Korean) |
 | `SIM_NOTES.md` | Detailed simulation notes — standup task, head-tracking problem, findings 1–5. (Korean) |
-| `ubai/` | All SLURM scripts for the UBAI supercomputer. Procedure in `ubai/README.md`. (Korean) |
+| `ubai/` | SLURM scripts for the UBAI supercomputer, plus the local measurement probes (`head_probe2.py`, `torque_probe.py`, `torque_derate_test.py`). Procedure in `ubai/README.md`. (Korean) |
 | `ubai_standup/` | sbatch script for standup training |
 | `from_ubai/` | 9 trained ONNX policies retrieved from the cluster |
 | `print/` | 36 STL types (51 parts) for 3D printing + `PRINT_CHECKLIST.md` |
+| `microduck_ref/` | Research record on Pollen's Microduck (25 cm) — **the robot this project does not build.** Kept as the reasoning behind the choice. (Korean) |
 | `make_standup_xml.py` | Generates the standup training XML (adds ground collision boxes) |
 | `smoke_standup.py` | Local CPU sanity check for the standup env (not training — a pre-flight check) |
 
@@ -107,11 +117,20 @@ Inference only needs onnxruntime, so it runs fine on the newer stack.
 - [x] Viewer improvements — R-key reset, CPU usage 98% → 3.6%, five dance moves
 - [x] Found 5 upstream bugs (collision geometry, ignored head commands, checkpoint resume, sensor addressing)
 - [x] Collected 51 STL parts + print plan (PLA 990 g + TPU 34 g, Bambu H2D/X1C)
+- [x] **Measured actuator torque headroom before committing to the parts order** — the sim
+      allows ±3.23 N·m per joint but a real STS3215 stalls at 1.86 N·m. The knee sits on that
+      clamp 14–16 % of the time, yet derating the model to the real limit never made either
+      policy fall; it only cost speed (−42 % / −69 %). Parts order unblocked
 
 ## Next
 
-- [ ] Retrieve and compare results from the walking + head-tracking runs (jobs 910949 / 910953 / 910954)
+- [ ] Compare the three walking + head-tracking policies in the viewer — all three jobs
+      (910949 / 910953 / 910954) completed and were retrieved into `from_ubai/` on 2026-09-06.
+      Note the final 300M checkpoint scored *lower* than the 279M one in all three runs, so both
+      were kept; the gap is within one reward std, so the viewer has to settle it
 - [ ] Verify whether full inversion recovery is **physically possible at all** (no arms — it may not be)
+- [ ] Retrain one 300 M run with `forcerange` set to the real servo limit (1.86 N·m) so the
+      policy stops relying on torque the hardware cannot produce (~1 h 22 min on an A6000)
 - [ ] Fix `--restore_checkpoint_path` — needed for runs longer than 48 h
 - [ ] After sim validation → order parts + 3D print → assemble → **sim2real tuning (the real wall, 2–6 weeks)**
 
