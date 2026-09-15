@@ -1,0 +1,211 @@
+diff --git a/playground/common/randomize.py b/playground/common/randomize.py
+index cf17bcd..587e5f0 100644
+--- a/playground/common/randomize.py
++++ b/playground/common/randomize.py
+@@ -15,6 +15,8 @@
+ # ==============================================================================
+ """Domain randomization for the Open Duck Mini V2 environment. (based on Berkeley Humanoid)"""
+ 
++import os
++
+ import jax
+ from mujoco import mjx
+ import jax.numpy as jp
+@@ -25,6 +27,18 @@ TORSO_BODY_ID = 1
+ 
+ def domain_randomize(model: mjx.Model, rng: jax.Array):
+ 
++    # 실물 서보의 토크 상한은 고정이 아니다: 배터리 처짐(8.4->6.8V), 발열 감쇄, 개체차.
++    # FR_RAND_LO / FR_RAND_HI 를 주면 관절별로 U(lo, hi) 에서 뽑는다.
++    # 안 주면 XML 값(현재 1.86) 그대로라 기존 잡들과 동작이 같다.
++    _fr_lo = os.environ.get("FR_RAND_LO")
++    _fr_hi = os.environ.get("FR_RAND_HI")
++    randomize_forcerange = _fr_lo is not None and _fr_hi is not None
++    if randomize_forcerange:
++        _fr_lo, _fr_hi = float(_fr_lo), float(_fr_hi)
++        print("[randomize] actuator_forcerange ~ U(%.2f, %.2f) per joint" % (_fr_lo, _fr_hi))
++    else:
++        print("[randomize] actuator_forcerange: XML 값 고정")
++
+     # _dof_addr=jp.array([6,8,10,12,14,16,18,20,22,24])
+     # _joint_addr=jp.array([7,9,11,13,15,17,19,21,23,25])
+ 
+@@ -94,6 +108,17 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
+         actuator_gainprm = model.actuator_gainprm.at[:, 0].set(current_kp * factor)
+         actuator_biasprm = model.actuator_biasprm.at[:, 1].set(-current_kp * factor)
+ 
++        # Randomize torque limit (see FR_RAND_LO/HI above).
++        rng, key = jax.random.split(rng)
++        if randomize_forcerange:
++            fmax = jax.random.uniform(
++                key, shape=(model.nu,), minval=_fr_lo, maxval=_fr_hi
++            )
++            actuator_forcerange = model.actuator_forcerange.at[:, 0].set(-fmax)
++            actuator_forcerange = actuator_forcerange.at[:, 1].set(fmax)
++        else:
++            actuator_forcerange = model.actuator_forcerange
++
+         return (
+             geom_friction,
+             body_ipos,
+@@ -103,6 +128,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
+             qpos0,
+             actuator_gainprm,
+             actuator_biasprm,
++            actuator_forcerange,
+         )
+ 
+     (
+@@ -114,6 +140,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
+         qpos0,
+         actuator_gainprm,
+         actuator_biasprm,
++        actuator_forcerange,
+     ) = rand_dynamics(rng)
+ 
+     in_axes = jax.tree_util.tree_map(lambda x: None, model)
+@@ -127,6 +154,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
+             "qpos0": 0,
+             "actuator_gainprm": 0,
+             "actuator_biasprm": 0,
++            "actuator_forcerange": 0,
+         }
+     )
+ 
+@@ -140,6 +168,7 @@ def domain_randomize(model: mjx.Model, rng: jax.Array):
+             "qpos0": qpos0,
+             "actuator_gainprm": actuator_gainprm,
+             "actuator_biasprm": actuator_biasprm,
++            "actuator_forcerange": actuator_forcerange,
+         }
+     )
+ 
+diff --git a/playground/common/rewards.py b/playground/common/rewards.py
+index 1700a62..fe4ddb6 100644
+--- a/playground/common/rewards.py
++++ b/playground/common/rewards.py
+@@ -132,6 +132,7 @@ def cost_head_pos(
+     joints_qpos: jax.Array,
+     joints_qvel: jax.Array,
+     cmd: jax.Array,
++    only_when_moving: bool = True,
+ ) -> jax.Array:
+     move_cmd_norm = jp.linalg.norm(cmd[:3])
+     head_cmd = cmd[3:]
+@@ -144,7 +145,10 @@ def cost_head_pos(
+ 
+     # head_vel_error = jp.sum(jp.square(head_vel - target_head_qvel))
+ 
+-    return jp.nan_to_num(head_pos_error) * (move_cmd_norm > 0.01)
++    # only_when_moving=False 로 두면 제자리에서도 머리 명령을 추종한다.
++    # 제자리 춤/두리번거림에는 이쪽이 필요하다.
++    gate = (move_cmd_norm > 0.01) if only_when_moving else 1.0
++    return jp.nan_to_num(head_pos_error) * gate
+     # return jp.nan_to_num(head_pos_error + head_vel_error)
+ 
+ 
+diff --git a/playground/common/runner.py b/playground/common/runner.py
+index 628f325..a2418db 100644
+--- a/playground/common/runner.py
++++ b/playground/common/runner.py
+@@ -99,6 +99,11 @@ class BaseRunner(ABC):
+         else:
+             network_factory = ppo_networks.make_ppo_networks
+         self.ppo_training_params["num_timesteps"] = self.num_timesteps
++        # SEED 를 주면 PPO 시드를 바꾼다 (안 주면 기존 설정 그대로 = 재현 가능).
++        # 같은 설정을 시드만 바꿔 돌려야 "차이가 시드 노이즈인가" 를 가를 수 있다.
++        self.ppo_training_params["seed"] = int(
++            os.environ.get("SEED", self.ppo_training_params.get("seed", 0))
++        )
+         print(f"PPO params: {self.ppo_training_params}")
+ 
+         train_fn = functools.partial(
+diff --git a/playground/open_duck_mini_v2/joystick.py b/playground/open_duck_mini_v2/joystick.py
+index c8d5e7d..437063d 100644
+--- a/playground/open_duck_mini_v2/joystick.py
++++ b/playground/open_duck_mini_v2/joystick.py
+@@ -16,6 +16,7 @@
+ """Joystick task for Open Duck Mini V2. (based on Berkeley Humanoid)"""
+ 
+ from typing import Any, Dict, Optional, Union
++import os
+ import jax
+ import jax.numpy as jp
+ from ml_collections import config_dict
+@@ -38,6 +39,7 @@ from playground.common.rewards import (
+     cost_action_rate,
+     cost_stand_still,
+     reward_alive,
++    cost_head_pos,
+ )
+ from playground.open_duck_mini_v2.custom_rewards import reward_imitation
+ 
+@@ -81,8 +83,13 @@ def default_config() -> config_dict.ConfigDict:
+                 torques=-1.0e-3,
+                 action_rate=-0.5,  # was -1.5
+                 stand_still=-0.2,  # was -1.0 TODO try to relax this a bit ?
+-                alive=20.0,
++                alive=float(os.environ.get("ALIVE_W", "20.0")),
+                 imitation=1.0,
++                # 머리 4축(neck_pitch, head_pitch, head_yaw, head_roll)이 명령을 따라가게 한다.
++                # 원본에는 cost_head_pos 가 정의만 되어 있고 등록되지 않아, 정책이 머리 명령을
++                # 완전히 무시하고 home 자세로 굳어 있었다.
++                # 가중치는 HEAD_POS_W 로 덮어쓴다. 안 주면 기존 -1.0.
++                head_pos=float(os.environ.get("HEAD_POS_W", "-1.0")),
+             ),
+             tracking_sigma=0.01,  # was working at 0.01
+         ),
+@@ -91,9 +98,16 @@ def default_config() -> config_dict.ConfigDict:
+             interval_range=[5.0, 10.0],
+             magnitude_range=[0.1, 1.0],
+         ),
+-        lin_vel_x=[-0.15, 0.15],
+-        lin_vel_y=[-0.2, 0.2],
+-        ang_vel_yaw=[-1.0, 1.0],  # [-1.0, 1.0]
++        # 레퍼런스 모션(polynomial_coefficients.pkl)이 실제로 갖고 있는 범위에 맞춘다.
++        #   dx     [-0.148, 0.222]   dy [-0.111, 0.111]   dtheta [-1.111, 1.222]
++        # 원본 설정은 전진을 0.15 로 묶어 레퍼런스의 0.222 를 48% 놀리고 있었고,
++        # 반대로 게걸음은 0.2 까지 명령하는데 레퍼런스는 0.111 뿐이라
++        # vel_to_index 가 clip 해버린다 → 0.111~0.2 구간 전체가 같은 레퍼런스로 간다.
++        # 그 구간에서 tracking_lin_vel("0.2로 가") 과 imitation("0.111 걸음처럼 생겨라")
++        # 이 정면충돌한다. 범위를 맞춰서 둘을 같은 편으로 만든다.
++        lin_vel_x=[-0.148, 0.222],
++        lin_vel_y=[-0.111, 0.111],
++        ang_vel_yaw=[-1.0, 1.0],  # 레퍼런스는 ±1.111~1.222 라 여유 있음
+         neck_pitch_range=[-0.34, 1.1],
+         head_pitch_range=[-0.78, 0.78],
+         head_yaw_range=[-1.5, 1.5],
+@@ -656,13 +670,19 @@ class Joystick(open_duck_mini_v2_base.OpenDuckMiniV2Env):
+                 info["command"],
+                 USE_IMITATION_REWARD,
+             ),
++            "head_pos": cost_head_pos(
++                self.get_actuator_joints_qpos(data.qpos),
++                self.get_actuator_joints_qvel(data.qvel),
++                info["command"],
++                only_when_moving=False,
++            ),
+             "stand_still": cost_stand_still(
+                 # info["command"], data.qpos[7:], data.qvel[6:], self._default_pose
+                 info["command"],
+                 self.get_actuator_joints_qpos(data.qpos),
+                 self.get_actuator_joints_qvel(data.qvel),
+                 self._default_actuator,
+-                ignore_head=False,
++                ignore_head=True,  # 머리는 head_pos 가 담당한다
+             ),
+         }
+ 
+diff --git a/playground/open_duck_mini_v2/xmls/open_duck_mini_v2_backlash.xml b/playground/open_duck_mini_v2/xmls/open_duck_mini_v2_backlash.xml
+index 94fbc64..294d486 100644
+--- a/playground/open_duck_mini_v2/xmls/open_duck_mini_v2_backlash.xml
++++ b/playground/open_duck_mini_v2/xmls/open_duck_mini_v2_backlash.xml
+@@ -47,7 +47,7 @@
+       <!-- <joint damping="0.60" frictionloss="0.052" armature="0.028"/>
+       <position kp="17.8" kv="0.0" forcerange="-3.35 3.35"/> -->
+       <joint damping="0.56" frictionloss="0.068" armature="0.027"/>
+-      <position kp="17.11" kv="0.0" forcerange="-3.23 3.23"/>
++      <position kp="17.11" kv="0.0" forcerange="-1.86 1.86"/>
+     </default>
+     <default class="backlash">
+       <!-- +/- 0.5° of backlash -->
