@@ -1,0 +1,45 @@
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1788493235.733843 2030999 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1788493239.294967 2030999 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/jax/_src/interpreters/xla.py:119: RuntimeWarning: overflow encountered in cast
+  return np.asarray(x, dtypes.canonicalize_dtype(x.dtype))
+Traceback (most recent call last):
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/playground/open_duck_mini_v2/runner.py", line 64, in <module>
+    main()
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/playground/open_duck_mini_v2/runner.py", line 60, in main
+    runner.train()
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/playground/common/runner.py", line 114, in train
+    _, params, _ = train_fn(
+                   ^^^^^^^^^
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/brax/training/agents/ppo/train.py", line 614, in train
+    params = checkpoint.load(restore_checkpoint_path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/brax/training/agents/ppo/checkpoint.py", line 42, in load
+    return checkpoint.load(path)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/brax/training/checkpoint.py", line 154, in load
+    target = orbax_checkpointer.restore(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/orbax/checkpoint/_src/checkpointers/checkpointer.py", line 329, in restore
+    restored = self._restore(directory, args=ckpt_args)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/orbax/checkpoint/_src/checkpointers/checkpointer.py", line 343, in _restore
+    return self._handler.restore(directory, args=args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/orbax/checkpoint/_src/handlers/pytree_checkpoint_handler.py", line 871, in restore
+    return self._handler_impl.restore(directory, args=args)  # pyrefly: ignore[bad-argument-type]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/orbax/checkpoint/_src/handlers/base_pytree_checkpoint_handler.py", line 1068, in restore
+    restore_args = _fill_missing_save_or_restore_args(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/orbax/checkpoint/_src/handlers/base_pytree_checkpoint_handler.py", line 223, in _fill_missing_save_or_restore_args
+    return jax.tree_util.tree_map(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/jax/_src/tree_util.py", line 361, in tree_map
+    all_leaves = [leaves] + [treedef.flatten_up_to(r) for r in rest]
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/jax/_src/tree_util.py", line 361, in <listcomp>
+    all_leaves = [leaves] + [treedef.flatten_up_to(r) for r in rest]
+                             ^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: Expected list, got RestoreArgs(restore_type=<class 'numpy.ndarray'>, dtype=None).

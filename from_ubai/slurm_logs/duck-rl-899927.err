@@ -1,0 +1,19 @@
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1788149952.675320 1614817 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1788149954.331902 1614817 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+E0831 13:19:15.977906 1614869 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+Traceback (most recent call last):
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/playground/open_duck_mini_v2/runner.py", line 64, in <module>
+    main()
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/playground/open_duck_mini_v2/runner.py", line 60, in main
+    runner.train()
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/playground/common/runner.py", line 114, in train
+    _, params, _ = train_fn(
+                   ^^^^^^^^^
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/brax/training/agents/ppo/train.py", line 756, in train
+    training_state = jax.device_put_replicated(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/.venv/lib/python3.11/site-packages/jax/_src/deprecations.py", line 54, in getattr
+    raise AttributeError(message)
+AttributeError: jax.device_put_replicated is deprecated; use jax.device_put instead. See https://docs.jax.dev/en/latest/migrate_pmap.html#drop-in-replacements for a drop-in replacement.

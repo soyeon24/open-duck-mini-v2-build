@@ -72,7 +72,10 @@ fi
 ACCUM=$(cat "$PROGRESS" 2>/dev/null || echo 0)
 echo "[progress] 누적 ${ACCUM} / 목표 ${TOTAL} · 이번 세그먼트 ${SEGMENT}"
 
-.venv/bin/python playground/open_duck_mini_v2/standup_runner.py \
+# -u 필수: 없으면 stdout 이 블록 버퍼링돼서, 잡이 멀쩡히 돌고 있는데도 로그가 몇 분씩
+# 비어 있다. 죽은 잡과 구별이 안 된다 (984809 에서 실제로 헷갈렸다 — 체크포인트 쓰이는
+# 걸 보고서야 살아 있는 줄 알았다).
+.venv/bin/python -u playground/open_duck_mini_v2/standup_runner.py \
   --output_dir "$OUTDIR" \
   --num_timesteps "$SEGMENT" \
   "$@"

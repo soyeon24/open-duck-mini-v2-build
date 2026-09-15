@@ -64,20 +64,31 @@ check("observation_size 일치", so_s == so_w, f"standup={so_s}  joystick={so_w}
 check("action_size 일치", env.action_size == walk.action_size,
       f"{env.action_size} vs {walk.action_size}")
 
-print("\n4) reset - 넘어진 자세로 시작하는가")
+print("\n4) reset - 바닥에 누운 자세로 시작하는가")
 t = time.time()
 reset = jax.jit(env.reset)
 state = reset(jax.random.PRNGKey(0))
 print(f"  첫 reset (JIT 컴파일 포함) {time.time()-t:.1f}s")
 
-ups, heights = [], []
-for seed in range(8):
+ups, heights, speeds = [], [], []
+for seed in range(16):
     s = reset(jax.random.PRNGKey(seed))
     ups.append(float(env.get_gravity(s.data)[-1]))
     heights.append(float(env.get_floating_base_qpos(s.data.qpos)[2]))
-print(f"  upvector z (8회): {np.round(ups, 3)}")
-check("전부 넘어진 채 시작 (upvector z < 0.2)", all(u < 0.2 for u in ups),
+    speeds.append(float(jp.abs(s.data.qvel).max()))
+print(f"  upvector z (16회): {np.round(ups, 3)}")
+print(f"  몸통 높이 cm     : {np.round(np.array(heights) * 100, 1)}")
+# 서 있는 자세는 up=+1.0 / 높이 15cm. 누운 자세는 up 이 0 근처 (몸통 z축이 수평)
+# 이거나 음수(뒤집힘)고, 높이는 23cm(물구나무)를 넘지 않는다.
+check("전부 넘어진 채 시작 (upvector z < 0.7)", all(u < 0.7 for u in ups),
       f"최대 {max(ups):.3f}")
+check("공중에서 시작하지 않음 (속도 0)", max(speeds) == 0.0, f"최대 |qvel| {max(speeds):.3f}")
+# 높이만으로는 서 있는지 누웠는지 못 가린다. 등을 대고 누운 자세의 base 높이가
+# 14.7cm 로 서 있을 때(15.0cm)와 거의 같다 — base 원점이 몸통 박스 위쪽에 있어서다.
+# 서 있다는 건 up=+1 이면서 높이가 나오는 것이므로 둘을 같이 봐야 한다.
+check("서 있는 채로 시작한 개체가 없음",
+      not any(u > 0.7 and h > 0.14 for u, h in zip(ups, heights)),
+      f"최대 up {max(ups):+.3f}")
 check("자세가 매번 다름 (랜덤성)", float(np.std(ups)) > 0.05, f"std={np.std(ups):.3f}")
 check("obs 에 NaN 없음", not bool(jp.isnan(state.obs["state"]).any()))
 check("명령이 0", float(jp.abs(state.info["command"]).max()) == 0.0)
@@ -112,6 +123,65 @@ print(f"  넘어짐  upright={float(r_fallen['upright']):+.3f}  height={float(r_
 print(f"  서있음  upright={float(r_up['upright']):+.3f}  height={float(r_up['height']):+.3f}")
 check("upright 보상이 서있을 때 더 큼", float(r_up["upright"]) > float(r_fallen["upright"]))
 check("height 보상이 서있을 때 더 큼", float(r_up["height"]) > float(r_fallen["height"]))
+
+print("\n7) 보상 사다리 - 누워 있는 게 최적이 아닌가")
+# v1~v4 를 망친 것은 항상 이 지점이었다. 항목 하나하나는 말이 되는데, 합쳐 놓으면
+# "가만히 있기" 가 제일 이득인 배치가 된다. 그래서 중간 단계의 총점을 직접 찍어본다.
+#
+# 세 상태:
+#   누움      바닥에 누운 자세 (자세 뱅크에서)
+#   몸통 들림 같은 자세에서 몸통만 12cm 띄움. up 은 그대로 (아직 수평) 이지만
+#            바닥 접촉이 사라진다 = 일어서기 전반부에서 실제로 일어나는 변화
+#   서 있음   home 키프레임
+scales = env._config.reward_config.scales
+
+
+from mujoco_playground._src.collision import geoms_colliding  # noqa: E402
+
+
+def score(data):
+    contact = jp.array([
+        geoms_colliding(data, gid, env._floor_geom_id) for gid in env._feet_geom_id
+    ])
+    r = env._get_reward(data, jp.zeros(env.action_size), s0.info, {},
+                        jp.zeros(()), contact, contact)
+    total = sum(float(r[k]) * float(scales[k]) for k in r)
+    return total, float(r["ground_clear"]), float(env.get_gravity(data)[-1])
+
+
+# 자세 하나만 보고 판정하면 안 된다. 512개 중 8개(1.6%)는 무릎·정강이에 걸려
+# 몸통이 안 닿은 채 멈춘 자세라, 하필 그걸 뽑으면 `ground_clear` 가 처음부터 1 이고
+# 사다리가 거꾸로 보인다 (실제로 seed 1 이 그랬다). 여러 번 뽑아 평균으로 본다.
+lies, lifts, clears = [], [], []
+for seed in range(8):
+    s0 = reset(jax.random.PRNGKey(seed))
+    t_lie, gc, _ = score(s0.data)
+    # 같은 자세에서 몸통만 12cm 들어올린다. 관절 각도는 그대로이므로 up 은 변하지
+    # 않는다 — 즉 "아직 수평인데 바닥에서 떨어졌다" 는, 일어서기 전반부 그 자체다.
+    q = s0.data.qpos.at[2].add(0.12)
+    lifted = mjx_env.init(env.mjx_model, qpos=q, qvel=jp.zeros(env.mjx_model.nv),
+                          ctrl=env.get_actuator_joints_qpos(q))
+    t_lift, _, _ = score(lifted)
+    lies.append(t_lie), lifts.append(t_lift), clears.append(gc)
+
+standing = mjx_env.init(env.mjx_model, qpos=env._init_q,
+                        qvel=jp.zeros(env.mjx_model.nv),
+                        ctrl=env.get_actuator_joints_qpos(env._init_q))
+t_stand, gc_stand, up_stand = score(standing)
+
+print(f"  누움(8회 평균)  총점 {np.mean(lies):+7.3f}   ground_clear 이 0 인 비율 "
+      f"{(1 - np.mean(clears)) * 100:.0f}%")
+print(f"  몸통 들림        총점 {np.mean(lifts):+7.3f}")
+print(f"  서 있음          총점 {t_stand:+7.3f}   up {up_stand:+.2f}")
+
+check("시작 자세는 대개 몸이 바닥에 닿아 있다", np.mean(clears) < 0.3,
+      f"ground_clear=1 인 비율 {np.mean(clears) * 100:.0f}%")
+check("몸통을 들면 점수가 오른다 (= 일어서기 전반부에 보상이 있다)",
+      np.mean(lifts) > np.mean(lies) + 0.5,
+      f"{np.mean(lies):+.3f} -> {np.mean(lifts):+.3f}  "
+      f"(차이 {np.mean(lifts) - np.mean(lies):+.3f})")
+check("서 있는 게 제일 높다", t_stand > np.mean(lifts),
+      f"{np.mean(lifts):+.3f} -> {t_stand:+.3f}")
 
 print("\n" + "=" * 62)
 if FAIL:

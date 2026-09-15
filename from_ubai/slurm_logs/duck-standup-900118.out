@@ -1,0 +1,5 @@
+=== node n002.hpc / job 900118 / start Mon Aug 31 15:26:40 KST 2026 ===
+name, memory.total [MiB], driver_version
+NVIDIA GeForce RTX 3090, 24576 MiB, 595.45.04
+[resume] 체크포인트 없음 → 처음부터
+[progress] 누적 0 / 목표 150000000 · 이번 세그먼트 150000000

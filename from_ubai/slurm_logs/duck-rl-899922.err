@@ -1,0 +1,10 @@
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1788149654.772143 1614008 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1788149660.760988 1614008 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+Traceback (most recent call last):
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/playground/open_duck_mini_v2/runner.py", line 7, in <module>
+    from playground.open_duck_mini_v2 import joystick, standing
+  File "/gpfs/home1/soyeon24/Open_Duck_Playground/playground/open_duck_mini_v2/joystick.py", line 27, in <module>
+    from mujoco_playground._src.collision import geoms_colliding
+ModuleNotFoundError: No module named 'mujoco_playground._src.collision'
