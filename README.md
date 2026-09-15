@@ -1,6 +1,62 @@
-# Open Duck Mini v2 — Build Log
+# Open Duck Mini v2 — Reinforcement Learning for a 42 cm Biped
 
-Building a bipedal walking duck robot from scratch.
+A PPO walking policy for the open-source [Open Duck Mini v2](https://github.com/apirrone/Open_Duck_Mini),
+trained in **MuJoCo Playground (JAX / MJX)** for 300 M environment steps on the University of Seoul
+**UBAI** SLURM cluster (RTX 3090, 1 h 11 min, 68,700 steps/s) — with a **get-up task built from
+scratch** that does not exist upstream, and **four upstream bug fixes** published as a
+[public fork](https://github.com/soyeon24/Open_Duck_Playground/tree/standup-task-and-fixes).
+
+<!-- TODO: drop a 10-second screen capture of the policy walking in the viewer here -->
+<!-- ![Walking policy in MuJoCo Playground](docs/walk.gif) -->
+
+## Headline result — the sim-to-real gap, measured before ordering a single part
+
+MuJoCo's actuator `forcerange` allows **±3.23 N·m** per joint. A real STS3215 stalls at **1.86 N·m**,
+and the knee sits on that ceiling **14–16 %** of the time. Derating the model to the real limit never
+made a trained policy fall — it only cost speed (−42 % / −69 %). Retraining with the ceiling *set* to
+the real limit changed exactly one variable and more than doubled walking speed under it:
+
+| Policy | Trained with `forcerange` | Speed at the real 1.86 N·m limit |
+|---|---|---|
+| `hw8` | ±3.23 N·m (simulator default) | 0.057 m/s |
+| `fr186` | ±1.86 N·m (real servo stall torque) | **0.130 m/s** |
+
+Neither ever fell. Handed back the ±3.23 clamp it was never trained on, `fr186` reaches only 0.136 —
+it never learned to spend torque the hardware does not have. Its mean checkpoint reward is 6 % *lower*
+than `hw8`, which is a reminder that reward across two differently clamped models is not a comparison
+worth making. The follow-up run randomizes the ceiling per joint over U(1.40, 1.90) so the policy is
+not tuned to a single operating point the hardware will rarely sit on.
+
+**Hardware status: no parts ordered yet.** This measurement is what unblocks the order — printing and
+assembly follow, then sim-to-real tuning. Everything reported here is simulation.
+
+> **The detailed engineering notes — [`NEXT_STEPS.md`](NEXT_STEPS.md), [`SIM_NOTES.md`](SIM_NOTES.md),
+> [`HARDWARE_PREP.md`](HARDWARE_PREP.md) — are written in Korean.** This README, the repository
+> structure and the fork's commit history are in English.
+
+---
+
+## Upstream bugs found and fixed
+
+Published in the [fork](https://github.com/soyeon24/Open_Duck_Playground/tree/standup-task-and-fixes),
+not in this repository.
+
+| # | Upstream bug | File | Fix |
+|---|---|---|---|
+| 1 | `get_gravity` uses the sensor **id** as a `sensordata` address, so it reads `local_linvel` instead of `upvector` — gravity reads near zero whether the robot is upright or inverted | `mujoco_infer_base.py` | [`c8eed76`](https://github.com/soyeon24/Open_Duck_Playground/commit/c8eed76) |
+| 2 | The ONNX session opens a thread per core and busy-waits between calls, so a 0.03 ms inference pegs 16 cores — viewer CPU **98 % → 3.6 %** | `onnx_infer.py` | [`7d6cadb`](https://github.com/soyeon24/Open_Duck_Playground/commit/7d6cadb) |
+| 3 | The `head_pos` reward exists but is never registered, so head commands are silently ignored; `stand_still` then fights it, pulling the head home while `head_pos` pulls it to the command | `rewards.py`, `joystick.py` | [`51d4212`](https://github.com/soyeon24/Open_Duck_Playground/commit/51d4212) |
+| 4 | Command ranges do not match the reference motion — 48 % of the forward range is unreachable and `dy` is 80 % wider than the reference, so `tracking_lin_vel` and `imitation` pull against each other across that band | `joystick.py` | [`51d4212`](https://github.com/soyeon24/Open_Duck_Playground/commit/51d4212) |
+
+Two further upstream defects are diagnosed but **not** fixed: `--restore_checkpoint_path` cannot reload
+what `policy_params_fn` writes (which caps a run at 48 h), and `--task rough_terrain` points at an XML
+that does not exist. Findings 4 and 5 in [`SIM_NOTES.md`](SIM_NOTES.md).
+
+New work in the same fork: [`f1ba3d8`](https://github.com/soyeon24/Open_Duck_Playground/commit/f1ba3d8)
+the get-up task, [`4a05ccb`](https://github.com/soyeon24/Open_Duck_Playground/commit/4a05ccb) the viewer
+(full reset, direct head control, dance moves).
+
+---
 
 > ### Two ducks, one folder
 > The folder is named `Microduck` for historical reasons, but the actual build target is the
@@ -14,9 +70,6 @@ compute board is an off-the-shelf Radxa Zero 3W — but there is no BOM, no wiri
 assembly guide, and no schematic or gerber for its custom HAT PCB, so it cannot be self-built.
 Full evidence in [`microduck_ref/README.md`](microduck_ref/README.md).
 
-**Current stage: 1 — "make it walk in simulation first" (cost: $0).**
-No parts ordered yet. Hardware purchase and 3D printing start once walking is confirmed in sim.
-
 ---
 
 ## Repository layout
@@ -25,6 +78,7 @@ No parts ordered yet. Hardware purchase and 3D printing start once walking is co
 |---|---|
 | `README.md` | This file. The map. |
 | `ROBOTS.md` | **42 cm vs 25 cm — which duck is which.** Read when the two get confused. (Korean) |
+| `BOM.md` | **The shopping list.** One page, checkboxes, exact part specs, what not to buy. Take it to the checkout. (Korean) |
 | `HARDWARE_PREP.md` | Ordering, BOM, assembly pitfalls, printing, vision plan. Everything about parts. (Korean) |
 | `NEXT_STEPS.md` | Plan, decision log, hardware specs, cluster access. **Read this first when resuming.** (Korean) |
 | `SIM_NOTES.md` | Detailed simulation notes — standup task, head-tracking problem, findings 1–5. (Korean) |
@@ -113,14 +167,23 @@ Inference only needs onnxruntime, so it runs fine on the newer stack.
 - [x] Simulation environment set up; walking confirmed with the community policy
 - [x] UBAI cluster access, environment install, GPU training pipeline (`ubai/`)
 - [x] **Completed a 300M-step walking run** — 1 h 11 min, 68,700 steps/s (RTX 3090)
-- [x] **Designed a standup task from scratch** — not present upstream. Iterated v1 → v3
+- [x] **Designed a get-up task from scratch** — not present upstream. Iterated v1 → v4
+- [x] **Scored those policies instead of trusting the reward curve, and found they do not work.**
+      All three succeed 0/8 past a 45° start. The training reward hid it completely: the
+      highest-reward run was no better than the lowest, because over 70 % of the reward on
+      offer was collectable by lying still (60 of a possible 260 per episode). Two design
+      faults — the start poses were not the curriculum they looked like (every tilt from 90°
+      to 160° settles into the *same* pose, and 180° is a headstand no fallen robot is ever
+      in), and every reward term except `upright` was gated on being upright, so the entire
+      first half of getting up paid nothing. Both fixed; retraining as job 984812
 - [x] Viewer improvements — R-key reset, CPU usage 98% → 3.6%, five dance moves
-- [x] Found 5 upstream bugs (collision geometry, ignored head commands, checkpoint resume, sensor addressing)
+- [x] **Fixed four upstream bugs** and diagnosed two more — table at the top of this file
 - [x] Collected 51 STL parts + print plan (PLA 990 g + TPU 34 g, Bambu H2D/X1C)
 - [x] **Measured actuator torque headroom before committing to the parts order** — the sim
       allows ±3.23 N·m per joint but a real STS3215 stalls at 1.86 N·m. The knee sits on that
       clamp 14–16 % of the time, yet derating the model to the real limit never made either
-      policy fall; it only cost speed (−42 % / −69 %). Parts order unblocked
+      policy fall; it only cost speed (−42 % / −69 %). The measurement outlived the build it was
+      for: it is why training now pins `forcerange` to the real limit
 
 ## Next
 
@@ -128,13 +191,36 @@ Inference only needs onnxruntime, so it runs fine on the newer stack.
       (910949 / 910953 / 910954) completed and were retrieved into `from_ubai/` on 2026-09-06.
       Note the final 300M checkpoint scored *lower* than the 279M one in all three runs, so both
       were kept; the gap is within one reward std, so the viewer has to settle it
-- [ ] Verify whether full inversion recovery is **physically possible at all** (no arms — it may not be)
-- [ ] Retrain one 300 M run with `forcerange` set to the real servo limit (1.86 N·m) so the
-      policy stops relying on torque the hardware cannot produce (~1 h 22 min on an A6000)
+- [ ] Retrieve job 973253 (`checkpoints_frr`, submitted 2026-09-12): same run again but with the
+      torque ceiling randomized per joint over U(1.40, 1.90) instead of pinned at 1.86. Derating
+      `fr186` below its training limit costs 15 % at 1.71 N·m (a sagging 6.8 V pack) and 34 % at
+      1.50 (a hot servo), so the policy is tuned to one point the hardware will rarely sit on.
+      Four more runs went out with it: two other band widths (1.55–1.90, 1.25–2.00), a seed
+      replicate to tell a real gap from seed noise, and the same band on rough terrain
+- [x] **Answered whether getting up is physically possible at all** (no arms — it might not have
+      been). Optimised an open-loop joint trajectory with CEM under the real servo speed and
+      torque limits: from flat on its back it reaches a crouch (torso 0.85 upright, 10.6 cm of
+      a standing 15 cm) and holds it, so physics is not the blocker. It does not reach a full
+      stand open-loop, and handing off to the walking policy fails on all 256 candidates —
+      balance needs feedback, which is what the policy is for. Recovery from the headstand
+      remains unverified
+- [ ] Rate the get-up policy at the real 1.86 N·m limit — the get-up scene still runs at 3.23
+- [x] **Retrained one 300 M run with `forcerange` at the real servo limit (1.86 N·m)** — job
+      972703, RTX 3090, 1 h 17 min. Only the backlash model's clamp changed, so it differs from
+      the `hw8` run by exactly one variable
+- [x] **It buys the speed back.** Under the real 1.86 N·m limit the new policy walks 0.130 m/s
+      against `hw8`'s 0.057, and neither ever fell. Given the same 3.23 clamp it was trained
+      without, it only reaches 0.136 — it never learned to spend torque the hardware does not
+      have. Mean checkpoint reward is 6 % *lower* than `hw8`, which is a reminder that reward
+      across two differently clamped models is not a comparison worth making
 - [ ] Fix `--restore_checkpoint_path` — needed for runs longer than 48 h
-- [ ] After sim validation → order parts + 3D print → assemble → **sim2real tuning (the real wall, 2–6 weeks)**
 
-Estimated total: 2–4 months, roughly 550,000–650,000 KRW in parts.
+**The physical build is not being pursued.** The work below the line — 51 STL parts, the print
+plan, the BOM, the torque-headroom measurement — was done to the point where the parts order was
+the next step, and that is where it stops. It is kept here as a record, not as a plan; the torque
+work in particular is the reason the walking policy is trained against the real servo limit rather
+than the simulator default, so it earned its place in the sim results whether or not anything is
+ever printed. Effort goes to simulation: the get-up task, MuJoCo, and the training pipeline.
 
 ---
 
