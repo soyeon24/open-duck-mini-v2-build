@@ -35,6 +35,7 @@ from playground.open_duck_mini_v2.mujoco_infer_base import MJInferBase  # noqa: 
 SCENE = "playground/open_duck_mini_v2/xmls/scene_standup.xml"
 REFERENCE = "playground/open_duck_mini_v2/data/polynomial_coefficients.pkl"
 POSE_BANK = "playground/open_duck_mini_v2/data/standup_poses.npy"
+REF_STATES = "playground/open_duck_mini_v2/data/standup_refstates.npy"
 
 DROP_HEIGHT = 0.22   # standup.py 와 동일
 TARGET_HEIGHT = 0.15  # home 키프레임의 몸통 높이
@@ -145,8 +146,9 @@ class StandupEval(MJInferBase):
         """
         if bank_idx is None:
             self.reset_fallen(angle, np.random.default_rng(seed))
-        else:
+        elif bank_idx >= 0:
             self.reset_from_bank(bank_idx)
+        # bank_idx < 0 이면 호출한 쪽이 이미 상태를 세팅해 둔 것이므로 건드리지 않는다
         n_ctrl = int(duration / (self.sim_dt * self.decimation))
         ups = np.zeros(n_ctrl)
         heights = np.zeros(n_ctrl)
@@ -190,6 +192,9 @@ def main():
     p.add_argument("--angles", type=float, nargs="+",
                    default=[30, 60, 90, 120, 150, 180],
                    help="시작 기울기(도)")
+    p.add_argument("--ref", action="store_true",
+                   help="정답 궤적 위의 모든 상태에서 시작해 버티는지 본다 "
+                        "(= '마무리를 할 줄 아는가'. RSI 가 먹힐지 가늠하는 시험)")
     p.add_argument("--bank", type=int, default=0, metavar="N",
                    help="각도 스윕 대신 자세 뱅크에서 N개를 뽑아 잰다 "
                         "(= 학습이 실제로 쓰는 시작 분포)")
@@ -204,6 +209,30 @@ def main():
         print("=" * 72)
         print(f"정책: {os.path.basename(path)}   시도 {args.seeds}회/각도, {args.duration:.0f}초")
         ev = StandupEval(path)
+
+        if args.ref:
+            refs = np.load(os.path.join(REPO, REF_STATES))
+            nq = ev.model.nq
+            print(f"정답 궤적 {len(refs)}개 지점에서 시작 · {args.duration:.0f}초 유지 시험")
+            print(f"{'궤적시각':>8} {'시작 up':>8} {'끝 up':>8} {'끝 높이':>9}  판정")
+            held = 0
+            for i, r in enumerate(refs):
+                ev.reset_from_bank(0)          # 정책 내부 상태 초기화용
+                ev.data.qpos[:] = r[:nq]
+                ev.data.qvel[:] = r[nq:]
+                ev.data.ctrl[:] = ev.get_actuator_joints_qpos(ev.data.qpos)
+                mujoco.mj_forward(ev.model, ev.data)
+                up0 = float(ev.get_gravity(ev.data)[-1])
+                ups, hs = ev.rollout(0.0, 0, args.duration, bank_idx=-1)
+                tail_up, tail_h = ups[-settle:], hs[-settle:]
+                ok = (tail_up > UP_OK).all() and (tail_h > HEIGHT_OK).all()
+                held += ok
+                if i % 4 == 0 or ok or up0 > 0.7:
+                    print(f"{i * 0.1:7.1f}s {up0:+8.2f} {tail_up.mean():+8.3f} "
+                          f"{tail_h.mean() * 100:8.1f}cm  {'버팀' if ok else ''}")
+            print()
+            print(f"  버틴 지점 {held}/{len(refs)}")
+            continue
 
         if args.bank:
             ok, rows = 0, []
