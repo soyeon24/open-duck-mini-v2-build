@@ -80,9 +80,11 @@ print(f"  upvector z (16회): {np.round(ups, 3)}")
 print(f"  몸통 높이 cm     : {np.round(np.array(heights) * 100, 1)}")
 # 서 있는 자세는 up=+1.0 / 높이 15cm. 누운 자세는 up 이 0 근처 (몸통 z축이 수평)
 # 이거나 음수(뒤집힘)고, 높이는 23cm(물구나무)를 넘지 않는다.
-check("전부 넘어진 채 시작 (upvector z < 0.7)", all(u < 0.7 for u in ups),
-      f"최대 {max(ups):.3f}")
-check("공중에서 시작하지 않음 (속도 0)", max(speeds) == 0.0, f"최대 |qvel| {max(speeds):.3f}")
+# RSI 를 넣은 뒤로 "전부 넘어진 채 시작" 은 더 이상 참이 아니다 — 절반은 일부러
+# 거의 선 상태에서 시작한다. 확인해야 할 건 "서 있는 채로 시작하지 않는다" 가 아니라
+# "누운 쪽도 제대로 섞여 있다" 쪽이다.
+check("누운 자세에서 시작하는 경우가 충분히 있다", sum(u < 0.5 for u in ups) >= 5,
+      f"up<0.5 인 시작 {sum(u < 0.5 for u in ups)}/16 회")
 # 높이만으로는 서 있는지 누웠는지 못 가린다. 등을 대고 누운 자세의 base 높이가
 # 14.7cm 로 서 있을 때(15.0cm)와 거의 같다 — base 원점이 몸통 박스 위쪽에 있어서다.
 # 서 있다는 건 up=+1 이면서 높이가 나오는 것이므로 둘을 같이 봐야 한다.
@@ -90,6 +92,15 @@ check("서 있는 채로 시작한 개체가 없음",
       not any(u > 0.7 and h > 0.14 for u, h in zip(ups, heights)),
       f"최대 up {max(ups):+.3f}")
 check("자세가 매번 다름 (랜덤성)", float(np.std(ups)) > 0.05, f"std={np.std(ups):.3f}")
+
+# RSI 가 실제로 걸리는지. 절반은 정답 궤적 위의 상태에서 시작해야 하고, 그 상태에는
+# 운동량이 있다. 속도가 전부 0 이면 REF_FRACTION 이 안 먹고 있다는 뜻이다.
+moving = sum(v > 1e-6 for v in speeds)
+print(f"  |qvel| 최대 (16회)  : {np.round(speeds, 2)}")
+check("절반쯤이 정답 궤적 상태에서 시작 (속도 있음)", 3 <= moving <= 13,
+      f"속도가 0 이 아닌 시작 {moving}/16 회")
+check("거의 다 선 상태로 시작하는 경우가 있다 (RSI 의 핵심)",
+      any(u > 0.75 for u in ups), f"최대 up {max(ups):+.3f}")
 check("obs 에 NaN 없음", not bool(jp.isnan(state.obs["state"]).any()))
 check("명령이 0", float(jp.abs(state.info["command"]).max()) == 0.0)
 

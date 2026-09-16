@@ -34,6 +34,7 @@ from playground.open_duck_mini_v2.mujoco_infer_base import MJInferBase  # noqa: 
 
 SCENE = "playground/open_duck_mini_v2/xmls/scene_standup.xml"
 REFERENCE = "playground/open_duck_mini_v2/data/polynomial_coefficients.pkl"
+POSE_BANK = "playground/open_duck_mini_v2/data/standup_poses.npy"
 
 DROP_HEIGHT = 0.22   # standup.py 와 동일
 TARGET_HEIGHT = 0.15  # home 키프레임의 몸통 높이
@@ -59,6 +60,7 @@ class StandupEval(MJInferBase):
         self.policy = OnnxInfer(onnx_path, awd=True)
         self.PRM = PolyReferenceMotion(REFERENCE)
         self.home_qpos = np.array(self.model.keyframe("home").qpos)
+        self._bank = None
 
     def reset_fallen(self, angle, rng):
         """standup.py 의 reset 과 같은 자세로 시작한다.
@@ -91,6 +93,32 @@ class StandupEval(MJInferBase):
         self.imitation_i = 0.0
         self.imitation_phase = np.array([0.0, 0.0])
 
+    def reset_from_bank(self, idx):
+        """학습이 실제로 쓰는 시작 자세 (`standup.py` 의 reset 과 같은 표).
+
+        각도 스윕(`reset_fallen`)은 **구버전 reset 을 재현한 것**이라 공중 z=0.22 에서
+        시작한다. v5 는 바닥에 자리잡은 자세로 학습했으므로, 각도 스윕으로 재면
+        학습한 적 없는 분포에서 시험하는 게 된다. v2~v4 와 나란히 비교하려면 각도
+        스윕이 맞고, "누워 있다가 일어서는가" 를 물으려면 이쪽이 맞다.
+        """
+        if self._bank is None:
+            self._bank = np.load(os.path.join(REPO, POSE_BANK))
+        qpos = self._bank[idx % len(self._bank)]
+
+        self.data.qpos[:] = qpos
+        self.data.qvel[:] = 0.0
+        self.data.ctrl[:] = self.get_actuator_joints_qpos(qpos)
+        mujoco.mj_forward(self.model, self.data)
+
+        self.last_action = np.zeros(self.num_dofs)
+        self.last_last_action = np.zeros(self.num_dofs)
+        self.last_last_last_action = np.zeros(self.num_dofs)
+        self.motor_targets = np.array(self.default_actuator).copy()
+        self.prev_motor_targets = np.array(self.default_actuator).copy()
+        self.imitation_i = 0.0
+        self.imitation_phase = np.array([0.0, 0.0])
+        return float(self.get_gravity(self.data)[-1])
+
     def get_obs(self):
         d = self.data
         accel = self.get_accelerometer(d).copy()
@@ -110,9 +138,15 @@ class StandupEval(MJInferBase):
             self.imitation_phase,
         ])
 
-    def rollout(self, angle, seed, duration):
-        """한 번 굴리고 (up 이력, height 이력) 을 돌려준다."""
-        self.reset_fallen(angle, np.random.default_rng(seed))
+    def rollout(self, angle, seed, duration, bank_idx=None):
+        """한 번 굴리고 (up 이력, height 이력) 을 돌려준다.
+
+        bank_idx 가 주어지면 자세 뱅크에서 시작하고, 아니면 각도로 기울여 떨어뜨린다.
+        """
+        if bank_idx is None:
+            self.reset_fallen(angle, np.random.default_rng(seed))
+        else:
+            self.reset_from_bank(bank_idx)
         n_ctrl = int(duration / (self.sim_dt * self.decimation))
         ups = np.zeros(n_ctrl)
         heights = np.zeros(n_ctrl)
@@ -156,6 +190,9 @@ def main():
     p.add_argument("--angles", type=float, nargs="+",
                    default=[30, 60, 90, 120, 150, 180],
                    help="시작 기울기(도)")
+    p.add_argument("--bank", type=int, default=0, metavar="N",
+                   help="각도 스윕 대신 자세 뱅크에서 N개를 뽑아 잰다 "
+                        "(= 학습이 실제로 쓰는 시작 분포)")
     args = p.parse_args()
 
     # 아래에서 레포 루트로 chdir 했으므로 상대경로는 프로젝트 루트 기준으로 되돌린다.
@@ -167,6 +204,33 @@ def main():
         print("=" * 72)
         print(f"정책: {os.path.basename(path)}   시도 {args.seeds}회/각도, {args.duration:.0f}초")
         ev = StandupEval(path)
+
+        if args.bank:
+            ok, rows = 0, []
+            for i in range(args.bank):
+                up0 = ev.reset_from_bank(i)
+                ups, hs = ev.rollout(0.0, 0, args.duration, bank_idx=i)
+                tail_up, tail_h = ups[-settle:], hs[-settle:]
+                s_ok = (tail_up > UP_OK).all() and (tail_h > HEIGHT_OK).all()
+                ok += s_ok
+                rows.append((up0, float(tail_up.mean()), float(tail_h.mean()), s_ok))
+            print(f"자세 뱅크 {args.bank}개 (학습이 쓰는 시작 분포)")
+            print(f"  성공 {ok}/{args.bank}  ({ok / args.bank * 100:.1f}%)")
+            # 시작 자세가 얼마나 뒤집혀 있었는지로 나눠 본다. 전부 0% 여도
+            # 어느 구간이 되고 어느 구간이 안 되는지는 봐야 다음 수가 나온다.
+            import collections
+            buckets = collections.defaultdict(list)
+            for up0, fu, fh, s_ok in rows:
+                k = ("물구나무 up<-0.85" if up0 < -0.85 else
+                     "옆/등 -0.85~0.3" if up0 < 0.3 else "거의 엎드림 up>0.3")
+                buckets[k].append((fu, fh, s_ok))
+            for k in sorted(buckets):
+                v = buckets[k]
+                print(f"  {k:<18} {len(v):3d}개  성공 {sum(x[2] for x in v):3d}  "
+                      f"최종 up {np.mean([x[0] for x in v]):+.3f}  "
+                      f"높이 {np.mean([x[1] for x in v]) * 100:5.1f}cm")
+            continue
+
         print(f"{'시작각':>6} {'성공률':>8} {'최종 up':>16} {'최종 높이(cm)':>16} {'최고 up':>9}")
 
         for deg in args.angles:
