@@ -28,3 +28,6 @@ BEST_WALK_ONNX_2.onnx
 
 # --- editor / office lock files ---
 ~$*
+
+# capture_head_cam.py 의 기본 출력 (렌더 프레임)
+head_cam_out/
