@@ -62,6 +62,8 @@ def main():
     ap.add_argument("--no_avoid", action="store_true", help="장애물 회피를 끈다")
     ap.add_argument("--no_head", action="store_true", help="머리 표적추종을 끈다")
     ap.add_argument("--no_sidestep", action="store_true", help="게걸음 회피를 끈다")
+    ap.add_argument("--fovy", type=float, default=None,
+                    help="머리 카메라 세로 화각을 바꿔 본다 (기본 49 = Pi cam v2)")
     ap.add_argument("--aim", type=float, default=None,
                     help="머리 조준: 1.0 사람만, 0.0 갈 방향만, 0.5 가운데")
     ap.add_argument("--no_ref_range", action="store_true")
@@ -87,6 +89,8 @@ def main():
         m.use_sidestep = False
     if args.aim is not None:
         m.HEAD_AIM_BLEND = args.aim
+    if args.fovy is not None:
+        m.model.cam_fovy[cam_id] = args.fovy
     if args.no_follow:
         m.commands[0] = m.COMMANDS_RANGE_X[1]
     else:
@@ -127,7 +131,8 @@ def main():
 
     t, dist, bear, yaw, up = (np.array(c) for c in zip(*log))
     mode = ("추종 OFF (전진 명령만)" if args.no_follow
-            else "회피%s 머리%s(aim %.1f) 게걸음%s" % ("O" if m.avoid else "X",
+            else "화각%.0f° 회피%s 머리%s(aim %.1f) 게걸음%s" % (m.model.cam_fovy[cam_id],
+                                      "O" if m.avoid else "X",
                                       "O" if m.head_track else "X",
                                       m.HEAD_AIM_BLEND,
                                       "O" if m.use_sidestep else "X"))
