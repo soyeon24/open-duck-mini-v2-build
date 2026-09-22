@@ -25,3 +25,6 @@ Open_Duck_Playground/
 # links to it instead of redistributing it.
 # Get it from: https://github.com/apirrone/Open_Duck_Mini_Runtime
 BEST_WALK_ONNX_2.onnx
+
+# --- editor / office lock files ---
+~$*
