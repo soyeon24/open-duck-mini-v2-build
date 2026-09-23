@@ -30,8 +30,9 @@ than `hw8`, which is a reminder that reward across two differently clamped model
 worth making. The follow-up run randomizes the ceiling per joint over U(1.40, 1.90) so the policy is
 not tuned to a single operating point the hardware will rarely sit on.
 
-**Hardware status: no parts ordered yet.** This measurement is what unblocks the order — printing and
-assembly follow, then sim-to-real tuning. Everything reported here is simulation.
+**Hardware status: parts ordered 2026-09-23, nothing built yet.** This measurement is what unblocked
+the order; printing and assembly follow, then sim-to-real tuning. Everything reported here is
+simulation.
 
 > **The detailed engineering notes — [`NEXT_STEPS.md`](NEXT_STEPS.md), [`SIM_NOTES.md`](SIM_NOTES.md),
 > [`HARDWARE_PREP.md`](HARDWARE_PREP.md) — are written in Korean.** This README, the repository
