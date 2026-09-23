@@ -100,6 +100,12 @@ on an obstacle-free scene:
 
 Nothing fell in any run (minimum gravity-`up` 0.991–0.996).
 
+Those timings are at the simulator's ±3.23 N·m torque ceiling. Re-scored at the real servo limit
+(`--forcerange 1.86`), the same policy still arrives **4 / 4**, but takes **28.2–39.5 s** instead of
+14–19 s — so the 35 s default budget drops the 180° start. Torque now has to be stated with any
+walking number: a policy trained under one ceiling and measured under another is not being measured
+at all (see `SIM_NOTES.md`, "fr186 은 요 제어가 무너진 게 아니었다").
+
 Two bugs surfaced while measuring this, both older than the feature:
 
 - **The yaw command has a dead zone.** Turning in place at 0.35 moves the robot 0–4 °/s; it takes

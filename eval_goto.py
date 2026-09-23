@@ -138,6 +138,9 @@ def main():
     ap.add_argument("--ref_range", action="store_true",
                     help="2026-09-04 이후 좁은 dy(±0.111)로 학습된 정책이면 붙일 것. "
                          "기본 정책(head 910949)은 넓은 dy 라 붙이면 안 된다.")
+    ap.add_argument("--forcerange", type=float, default=None,
+                    help="토크 상한[N·m]. 씬 XML 은 ±3.23 고정인데 fr186 계열은 "
+                         "±1.86 으로 학습됐다. 학습값과 다르면 걸음이 딴판이 된다")
     args = ap.parse_args()
 
     if args.random:
@@ -148,6 +151,9 @@ def main():
         yaws = DEFAULT_YAWS
     m = MjInfer(args.model_path, REFERENCE, args.onnx_model_path,
                 False, args.ref_range)
+    if args.forcerange is not None:
+        m.model.actuator_forcerange[:] = np.array([-args.forcerange,
+                                                   args.forcerange])
 
     d_goal = float(np.hypot(args.person[0] - args.start[0],
                             args.person[1] - args.start[1]))

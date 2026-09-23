@@ -11,6 +11,11 @@
 안 그러면 범위 밖 입력 때문에 생긴 실패를 정책 품질로 오독한다 (2026-09-04 의
 `lin_vel_y` 정합 전후로 갈린다. SIM_NOTES "명령 범위가 레퍼런스 모션과 안 맞았다").
 
+**토크 상한도 같은 이유로 각자 학습값으로 준다.** 씬 XML 은 ±3.23 N·m 로 고정인데
+fr186 은 ±1.86 으로 학습됐다. 2026-09-22 에 "fr186 은 요 제어가 무너졌다" 고 적은
+표가 바로 이 불일치였다 — 학습 때보다 74% 센 토크를 주고 잰 것이다. 맞춰서 재면
+쏠림이 8.7°/s -> 3.4°/s 로 떨어지고 전진이 91 -> 136cm 로 는다.
+
 머리는 정책에 맡긴다 (`direct_head=False`). 학습 조건이 그렇고, 머리를 명령으로
 0 에 붙들면 그것만으로 요 드리프트가 생겨 측정이 오염된다.
 
@@ -40,12 +45,14 @@ SCENE = "playground/open_duck_mini_v2/xmls/scene_flat_terrain_backlash.xml"
 
 FALLEN = 0.5  # up 이 이 아래로 내려가면 넘어지는 중으로 본다
 
-# 기본 비교군. (이름, 파일, ref_range) — ref_range 는 그 정책이 학습된 명령 범위다.
+# 기본 비교군. (이름, 파일, ref_range, 학습 당시 forcerange[N·m])
+# ref_range 는 그 정책이 학습된 명령 범위, forcerange 는 학습 당시 토크 상한이다.
+# fr186 만 1.86 으로 학습됐다 (09-12 패치가 XML 을 3.23 -> 1.86 으로 바꾼다).
 DEFAULT_POLICIES = [
-    ("08-31 완성본  dy+-0.2", "2026_08_31_144425_300482560.onnx", False),
-    ("head 910949   dy+-0.2", "head_2026_09_04_140643_300482560.onnx", False),
-    ("hw8           dy+-0.111", "hw8_2026_09_06_151227_300482560.onnx", True),
-    ("fr186         dy+-0.111", "fr186_2026_09_12_174638_300482560.onnx", True),
+    ("08-31 완성본  dy+-0.2", "2026_08_31_144425_300482560.onnx", False, 3.23),
+    ("head 910949   dy+-0.2", "head_2026_09_04_140643_300482560.onnx", False, 3.23),
+    ("hw8           dy+-0.111", "hw8_2026_09_06_151227_300482560.onnx", True, 3.23),
+    ("fr186         dy+-0.111", "fr186_2026_09_12_174638_300482560.onnx", True, 1.86),
 ]
 
 CMDS = [
@@ -128,22 +135,31 @@ def main():
                    help="정책 파일. 안 주면 DEFAULT_POLICIES 비교군을 돈다")
     p.add_argument("--ref_range", action="store_true",
                    help="-o 로 준 정책이 2026-09-04 이후(dy +-0.111)면 붙일 것")
+    p.add_argument("--forcerange", type=float, default=None,
+                   help="토크 상한[N·m] 을 전부 이 값으로 덮어쓴다. 안 주면 정책마다 "
+                        "학습 당시 값을 쓴다 (-o 로 줄 땐 3.23)")
     p.add_argument("--seconds", type=float, default=12.0)
     p.add_argument("--scene", default=SCENE)
     args = p.parse_args()
 
     if args.onnx:
-        policies = [(os.path.basename(o), o, args.ref_range) for o in args.onnx]
+        fr = args.forcerange if args.forcerange is not None else 3.23
+        policies = [(os.path.basename(o), o, args.ref_range, fr) for o in args.onnx]
     else:
-        policies = [(n, os.path.join(ROOT, "from_ubai", f), r)
-                    for n, f, r in DEFAULT_POLICIES]
+        policies = [(n, os.path.join(ROOT, "from_ubai", f), r,
+                     args.forcerange if args.forcerange is not None else fr)
+                    for n, f, r, fr in DEFAULT_POLICIES]
 
     print(f"{os.path.basename(args.scene)} · {args.seconds:.0f}초/조건 · 머리는 정책이 구동")
-    for label, path, rr in policies:
+    for label, path, rr, fr in policies:
         path = path if os.path.isabs(path) else os.path.join(ROOT, path)
         m = MjInfer(args.scene, REFERENCE, path, standing=False, ref_range=rr)
+        # 토크 상한을 그 정책이 학습된 값으로 맞춘다. 씬 XML 은 3.23 으로 고정돼
+        # 있어서, 1.86 으로 학습된 정책을 그냥 굴리면 학습 때보다 74% 센 토크를
+        # 주고 재게 된다.
+        m.model.actuator_forcerange[:] = np.array([-fr, fr])
         print("=" * 76)
-        print(f"{label}   (ref_range={rr})")
+        print(f"{label}   (ref_range={rr}, forcerange=±{fr})")
         print(f"  {'명령':<14} {'전진cm':>8} {'횡cm':>8} {'누적 요°':>10} {'최저 up':>9}  비고")
         for cname, cmd in CMDS:
             fwd, lat, dyaw, mu, fell = rollout(m, cmd, args.seconds)

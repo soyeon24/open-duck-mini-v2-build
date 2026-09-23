@@ -67,10 +67,16 @@ def main():
     ap.add_argument("--aim", type=float, default=None,
                     help="머리 조준: 1.0 사람만, 0.0 갈 방향만, 0.5 가운데")
     ap.add_argument("--no_ref_range", action="store_true")
+    ap.add_argument("--forcerange", type=float, default=None,
+                    help="토크 상한[N·m]. 씬 XML 은 ±3.23 고정인데 fr186 계열은 "
+                         "±1.86 으로 학습됐다. 학습값과 다르면 걸음이 딴판이 된다")
     args = ap.parse_args()
 
     m = MjInfer(args.model_path, REFERENCE, args.onnx_model_path,
                 False, not args.no_ref_range)
+    if args.forcerange is not None:
+        m.model.actuator_forcerange[:] = np.array([-args.forcerange,
+                                                   args.forcerange])
     m.full_reset()
     m.direct_head = False
     m.data.mocap_pos[0] = [args.person[0], args.person[1], 0.0]
