@@ -73,6 +73,12 @@ def main():
     ap.add_argument("--follow", action="store_true",
                     help="추종+회피를 켠다. 사람은 제자리에 두고 오리가 찾아간다.")
     ap.add_argument("--no_avoid", action="store_true", help="회피만 끈다")
+    ap.add_argument("--goto", action="store_true",
+                    help="자율 이동(N)을 켠다. 돌면서 사람을 찾고 -> 가고 -> 선다.")
+    ap.add_argument("--start_yaw", type=float, default=None,
+                    help="출발 방위(도). --goto 와 같이 쓴다. 180 이면 등지고 시작")
+    ap.add_argument("--person", type=float, nargs=2, default=None,
+                    help="사람(=도착점) x y. --goto 면 제자리에 세워 둔다")
     ap.add_argument("--no_ref_range", action="store_true")
     args = ap.parse_args()
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
@@ -83,7 +89,12 @@ def main():
                 False, not args.no_ref_range)
     m.full_reset()
     m.direct_head = False
-    if args.follow:
+    if args.goto:
+        m.place(None, args.start_yaw, args.person)
+        if args.no_avoid:
+            m.avoid = False
+        m.start_goto()
+    elif args.follow:
         m.follow = True
         if args.no_avoid:
             m.avoid = False
@@ -128,28 +139,17 @@ def main():
 
         # 표적을 좌우로 움직인다. 가만히 있으면 방위각이 안 변해서 추종이
         # 되는 건지 그냥 정면을 보는 건지 구분이 안 된다.
-        if args.follow:
+        if args.goto:
+            pass                       # 도착점은 가만히 있어야 도착점이다
+        elif args.follow:
             m.data.mocap_pos[0] = [2.4, 0.9, 0.0]
         else:
             m.data.mocap_pos[0] = [PX0, PY0 + SWEEP * np.sin(2 * np.pi * t / 6.0), 0.0]
 
-        if m.follow:
-            m.follow_step()
-
-        m.imitation_i = (m.imitation_i + m.phase_frequency_factor) % m.PRM.nb_steps_in_period
-        ph = m.imitation_i / m.PRM.nb_steps_in_period * 2 * np.pi
-        m.imitation_phase = np.array([np.cos(ph), np.sin(ph)])
-
-        action = m.policy.infer(m.get_obs(m.data, m.commands))
-        m.last_last_last_action = m.last_last_action.copy()
-        m.last_last_action = m.last_action.copy()
-        m.last_action = action.copy()
-        m.motor_targets = m.default_actuator + action * m.action_scale
-        lim = m.max_motor_velocity * ctrl_dt
-        m.motor_targets = np.clip(m.motor_targets,
-                                  m.prev_motor_targets - lim, m.prev_motor_targets + lim)
-        m.prev_motor_targets = m.motor_targets.copy()
-        m.data.ctrl = m.motor_targets.copy()
+        # 제어 한 스텝. 뷰어와 채점 스크립트가 쓰는 **그 함수**다. 예전에는
+        # 여기에 루프를 복제해 뒀는데, 그러면 한쪽만 고쳐졌을 때 영상과 측정이
+        # 조용히 갈린다.
+        m.control_step()
         for _ in range(m.decimation):
             mujoco.mj_step(m.model, m.data)
 
@@ -182,7 +182,12 @@ def main():
             u, v = PW + res["u"], res["v"]
             dr.line([(u, 0), (u, PH)], fill=(255, 0, 255), width=2)
             dr.line([(PW, v), (PW * 2, v)], fill=(255, 0, 255), width=2)
-            if args.follow:
+            if args.goto:
+                phase = {"scan": "사람 찾는 중", "go": "이동 중",
+                         "arrived": "도착"}[m.goto_phase]
+                txt = "{} {:+5.1f}°   {}".format(
+                    L["vision"], res["bearing_deg"], phase if kr else m.goto_phase)
+            elif args.follow:
                 sd = {1: "<<", -1: ">>", 0: "|"}[m.avoid_side]
                 txt = "{} {:+5.1f}°   여유 {:4.1f}m   우회 {}   {}".format(
                     L["vision"], res["bearing_deg"], m.follow_free, sd,
