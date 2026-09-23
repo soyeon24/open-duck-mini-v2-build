@@ -200,6 +200,7 @@ For standup policies, point at the scene that has torso collision geometry:
 | ↑ ↓ | Forward / backward |
 | ← → | Strafe left / right |
 | Q / E | Turn left / right |
+| **K** | **Heading hold** — on by default in the viewer. Feeds back the yaw you did not ask for; leaves the yaw you did ask for alone. Q/E re-anchor it |
 | P / ; | Gait frequency ±0.1 |
 | **R** | **Full reset** (added by this project. Do not use Backspace — it falls over instantly) |
 | 1–5 / 0 | Five dance moves / stop |

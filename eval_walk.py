@@ -92,22 +92,11 @@ def rollout(m, cmd, seconds):
     yaw_acc, yaw_prev = 0.0, y0
 
     for k in range(n):
-        m.imitation_i = (m.imitation_i + m.phase_frequency_factor) % m.PRM.nb_steps_in_period
-        ph = m.imitation_i / m.PRM.nb_steps_in_period * 2 * np.pi
-        m.imitation_phase = np.array([np.cos(ph), np.sin(ph)])
-
-        action = m.policy.infer(m.get_obs(m.data, m.commands))
-        m.last_last_last_action = m.last_last_action.copy()
-        m.last_last_action = m.last_action.copy()
-        m.last_action = action.copy()
-
-        m.motor_targets = m.default_actuator + action * m.action_scale
-        lim = m.max_motor_velocity * (m.sim_dt * m.decimation)
-        m.motor_targets = np.clip(
-            m.motor_targets, m.prev_motor_targets - lim, m.prev_motor_targets + lim
-        )
-        m.prev_motor_targets = m.motor_targets.copy()
-        m.data.ctrl = m.motor_targets.copy()
+        # 뷰어가 쓰는 그 함수다. 예전엔 여기에 루프를 복제해 뒀는데, 그러면
+        # 한쪽에만 들어간 기능(방위 유지 같은)이 여기서는 조용히 빠진다.
+        # 실제로 `--heading_hold` 가 복제본에서는 아무 일도 안 했다.
+        # 복제본과 이 함수가 소수점까지 같은 값을 내는 것은 확인하고 바꿨다.
+        m.control_step()
 
         for _ in range(m.decimation):
             mujoco.mj_step(m.model, m.data)
@@ -135,6 +124,9 @@ def main():
                    help="정책 파일. 안 주면 DEFAULT_POLICIES 비교군을 돈다")
     p.add_argument("--ref_range", action="store_true",
                    help="-o 로 준 정책이 2026-09-04 이후(dy +-0.111)면 붙일 것")
+    p.add_argument("--heading_hold", action="store_true",
+                   help="방위 유지를 켜고 잰다. 기본은 꺼짐 — 이 스크립트는 정책 "
+                        "맨몸의 쏠림을 재는 곳이고, 뷰어는 반대로 켜고 뜬다")
     p.add_argument("--forcerange", type=float, default=None,
                    help="토크 상한[N·m] 을 전부 이 값으로 덮어쓴다. 안 주면 정책마다 "
                         "학습 당시 값을 쓴다 (-o 로 줄 땐 3.23)")
@@ -158,8 +150,10 @@ def main():
         # 있어서, 1.86 으로 학습된 정책을 그냥 굴리면 학습 때보다 74% 센 토크를
         # 주고 재게 된다.
         m.model.actuator_forcerange[:] = np.array([-fr, fr])
+        m.heading_hold = args.heading_hold
         print("=" * 76)
-        print(f"{label}   (ref_range={rr}, forcerange=±{fr})")
+        print(f"{label}   (ref_range={rr}, forcerange=±{fr}"
+              f"{', 방위유지 ON' if args.heading_hold else ''})")
         print(f"  {'명령':<14} {'전진cm':>8} {'횡cm':>8} {'누적 요°':>10} {'최저 up':>9}  비고")
         for cname, cmd in CMDS:
             fwd, lat, dyaw, mu, fell = rollout(m, cmd, args.seconds)
