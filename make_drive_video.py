@@ -57,6 +57,13 @@ SCRIPTS = {
         ("→",  3.0, (0, -1, 0)),
         ("—",  1.0, (0, 0, 0)),
     ],
+    # 방위 유지가 있고 없고를 눈으로 가르려면 ↑ 를 오래 눌러야 한다. arrows 대본은
+    # ↑ 가 5초뿐이라 5초짜리 쏠림은 둘 다 작아서 차이가 안 보인다.
+    "straight": [
+        ("—",  1.0, (0, 0, 0)),
+        ("↑", 20.0, (1, 0, 0)),
+        ("—",  1.0, (0, 0, 0)),
+    ],
     "turn": [
         ("—",  1.0, (0, 0, 0)),
         ("Q",  4.0, (0, 0, 1)),
@@ -66,7 +73,8 @@ SCRIPTS = {
     ],
 }
 
-KEYS = {"arrows": ["↑", "↓", "←", "→"], "turn": ["Q", "E"]}
+KEYS = {"arrows": ["↑", "↓", "←", "→"], "straight": ["↑"],
+        "turn": ["Q", "E"]}
 
 
 def yaw_of(q):
@@ -86,6 +94,9 @@ def main():
     ap.add_argument("--panel", type=int, nargs=2, default=[560, 400])
     ap.add_argument("--out", type=str,
                     default=os.path.join(ROOT, "head_cam_out", "drive.gif"))
+    ap.add_argument("--heading_hold", action="store_true",
+                    help="방위 유지를 켜고 찍는다 (뷰어 기본값과 같은 상태). "
+                         "안 주면 정책 맨몸이 찍힌다")
     ap.add_argument("--script", choices=sorted(SCRIPTS), default="arrows",
                     help="arrows = 전진/후진/게걸음, turn = 제자리 선회(Q/E)")
     ap.add_argument("--en", action="store_true", help="라벨을 영어로")
@@ -104,18 +115,19 @@ def main():
                                                    args.forcerange])
     m.full_reset()
     m.direct_head = False
+    m.heading_hold = args.heading_hold
 
     font, kr = load_font(max(15, PH // 20))
     small, _ = load_font(max(12, PH // 28))
     big, _ = load_font(max(20, PH // 14))
     kr = kr and not args.en
     L = ({"drift": "쏠림", "yaw": "누적 요", "torque": "토크 상한",
-          "stop": "정지"} if kr else
+          "hold": "방위 유지", "stop": "정지"} if kr else
          {"drift": "drift", "yaw": "yaw turned", "torque": "torque limit",
-          "stop": "stop"})
+          "hold": "heading hold", "stop": "stop"})
     # arrows 대본은 요를 시킨 적이 없으니 쌓인 요가 곧 쏠림이다. turn 대본은
     # 도는 게 목적이라 같은 숫자가 "얼마나 돌았나" 가 된다. 라벨을 갈라 준다.
-    metric = L["drift"] if args.script == "arrows" else L["yaw"]
+    metric = L["yaw"] if args.script == "turn" else L["drift"]
     keys = KEYS[args.script]
 
     rend = mujoco.Renderer(m.model, height=PH, width=PW)
@@ -147,7 +159,7 @@ def main():
             yaw_prev = yaw_now
             # arrows 대본에서는 요 명령이 늘 0 이라 그대로 쏠림이 된다.
             # turn 대본에서는 선회 구간만 쌓아 "얼마나 돌았나" 를 보여준다.
-            if (ct == 0) == (args.script == "arrows"):
+            if (ct == 0) == (args.script != "turn"):
                 yaw_acc += step
             k += 1
             if k % every:
@@ -181,12 +193,13 @@ def main():
             deg = np.rad2deg(yaw_acc)
             dr.text((14, PH - 58),
                     "{} {:+5.1f}°".format(metric, deg), font=big,
-                    fill=(200, 40, 40) if (args.script == "arrows" and abs(deg) > 30)
+                    fill=(200, 40, 40) if (args.script != "turn" and abs(deg) > 15)
                     else (30, 30, 30))
             dr.text((14, PH - 26),
-                    "{:+.0f} / {:+.0f} cm   ({} ±{:.2f} N·m)".format(
+                    "{:+.0f} / {:+.0f} cm   ({} ±{:.2f} N·m, {} {})".format(
                         fwd * 100, lat * 100, L["torque"],
-                        args.forcerange if args.forcerange else 3.23),
+                        args.forcerange if args.forcerange else 3.23,
+                        L["hold"], "ON" if args.heading_hold else "OFF"),
                     font=small, fill=(90, 90, 90))
             dr.text((PW - 12, PH - 26), os.path.basename(args.onnx_model_path),
                     font=small, anchor="rs", fill=(90, 90, 90))
