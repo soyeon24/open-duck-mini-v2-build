@@ -80,6 +80,8 @@ def main():
     ap.add_argument("--person", type=float, nargs=2, default=None,
                     help="사람(=도착점) x y. --goto 면 제자리에 세워 둔다")
     ap.add_argument("--no_ref_range", action="store_true")
+    ap.add_argument("--en", action="store_true",
+                    help="라벨을 영어로. README 처럼 영어로 읽히는 자리에 쓸 것")
     args = ap.parse_args()
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
 
@@ -119,10 +121,13 @@ def main():
 
     font, kr = load_font(max(13, PH // 22))
     small, _ = load_font(max(11, PH // 28))
+    kr = kr and not args.en          # 한글 폰트가 있어도 --en 이면 영어로 쓴다
     L = ({"vision": "비전", "truth": "정답", "err": "오차",
           "miss": "미검출", "third": "3인칭"} if kr else
          {"vision": "vision", "truth": "truth", "err": "err",
           "miss": "NOT FOUND", "third": "3rd person"})
+    PHASE = ({"scan": "사람 찾는 중", "go": "이동 중", "arrived": "도착"} if kr else
+             {"scan": "searching", "go": "walking to goal", "arrived": "arrived"})
 
     ctrl_dt = m.sim_dt * m.decimation
     n = int(args.seconds / ctrl_dt)
@@ -183,10 +188,8 @@ def main():
             dr.line([(u, 0), (u, PH)], fill=(255, 0, 255), width=2)
             dr.line([(PW, v), (PW * 2, v)], fill=(255, 0, 255), width=2)
             if args.goto:
-                phase = {"scan": "사람 찾는 중", "go": "이동 중",
-                         "arrived": "도착"}[m.goto_phase]
                 txt = "{} {:+5.1f}°   {}".format(
-                    L["vision"], res["bearing_deg"], phase if kr else m.goto_phase)
+                    L["vision"], res["bearing_deg"], PHASE[m.goto_phase])
             elif args.follow:
                 sd = {1: "<<", -1: ">>", 0: "|"}[m.avoid_side]
                 txt = "{} {:+5.1f}°   여유 {:4.1f}m   우회 {}   {}".format(

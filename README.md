@@ -6,8 +6,11 @@ trained in **MuJoCo Playground (JAX / MJX)** for 300 M environment steps on the 
 scratch** that does not exist upstream, and **four upstream bug fixes** published as a
 [public fork](https://github.com/soyeon24/Open_Duck_Playground/tree/standup-task-and-fixes).
 
-<!-- TODO: drop a 10-second screen capture of the policy walking in the viewer here -->
-<!-- ![Walking policy in MuJoCo Playground](docs/walk.gif) -->
+![Walking to a goal on its own](media/goto.gif)
+
+*Given a start and a goal, with no keyboard input: the robot turns on the spot until the person's
+ankle bands enter its head camera, walks over, and stops. Started here facing away from the goal.
+Left is a chase view, right is what the head camera sees.*
 
 ## Headline result — the sim-to-real gap, measured before ordering a single part
 
@@ -69,6 +72,46 @@ Why not Microduck: its mechanical STLs and MJCF *are* published under Apache-2.0
 compute board is an off-the-shelf Radxa Zero 3W — but there is no BOM, no wiring diagram, no
 assembly guide, and no schematic or gerber for its custom HAT PCB, so it cannot be self-built.
 Full evidence in [`microduck_ref/README.md`](microduck_ref/README.md).
+
+---
+
+## Walking to a goal on its own
+
+The walking policy was not retrained for this. Perception sits **outside** the policy — it produces
+the same three velocity numbers an arrow key would, and the policy cannot tell where they came from.
+A head camera finds the person's fluorescent ankle bands by hue, and the bearing to them drives the
+yaw command directly.
+
+Given a start and a goal the robot runs three phases: **turn on the spot** until the bands appear in
+frame (three frames running, so a glint does not count), **walk**, and **stop** within 0.55 m.
+The heading is re-measured from the camera every control step at 50 Hz, not integrated from the IMU —
+so shoving the robot mid-walk is corrected on the next frame rather than accumulating.
+
+Scored by [`eval_goto.py`](eval_goto.py), which drives the same `goto_step` the viewer's N key runs,
+on an obstacle-free scene:
+
+| Condition | Result |
+|---|---|
+| Four start headings (0 / 90 / 180 / −90°) | **4 / 4 arrived**, 14.0–19.0 s end to end |
+| Eight uniformly random start headings | **8 / 8 arrived** |
+| A second goal at (−1.20, 1.50) | **3 / 3 arrived** |
+| Trunk rotated ±90 / 150 / 180° mid-walk | **4 / 4 re-acquired** in 1.7–5.0 s, all still arrived |
+
+Nothing fell in any run (minimum gravity-`up` 0.991–0.996).
+
+Two bugs surfaced while measuring this, both older than the feature:
+
+- **The yaw command has a dead zone.** Turning in place at 0.35 moves the robot 0–4 °/s; it takes
+  0.8 to get 25–29 °/s. The lost-target search had been set to 0.35, so it had never actually
+  turned to search for anything. Small yaw commands *while walking forward* are unaffected.
+- **The camera's range estimate cannot decide arrival.** It comes from the pixel width of the two
+  ankle bands merged, so an oblique view inflates it — 2.18 m read at a true 1.92 m, 8.48 m when
+  the blob is clipped at the frame edge — and inside 0.4 m the bands fall below the field of view
+  entirely. The robot walked straight past the person. Arrival now triggers on whichever of the
+  camera range and the goal coordinate lands first; either one alone deadlocks.
+
+Obstacles are deliberately absent here. Reactive avoidance is a separate problem, and mixing it in
+makes a failure unattributable to either layer.
 
 ---
 
@@ -144,6 +187,9 @@ For standup policies, point at the scene that has torso collision geometry:
 | **R** | **Full reset** (added by this project. Do not use Backspace — it falls over instantly) |
 | 1–5 / 0 | Five dance moves / stop |
 | T | Toggle direct head control |
+| **N** | **Walk to the goal by itself** — turn until the person is found, go, stop |
+| F | Follow the person (the `go` half of N, without the search) |
+| V / G | Toggle obstacle avoidance / head tracking |
 
 Commands latch until changed. The viewer window must have focus.
 
@@ -177,6 +223,9 @@ Inference only needs onnxruntime, so it runs fine on the newer stack.
       in), and every reward term except `upright` was gated on being upright, so the entire
       first half of getting up paid nothing. Both fixed; retraining as job 984812
 - [x] Viewer improvements — R-key reset, CPU usage 98% → 3.6%, five dance moves
+- [x] **Closed the loop from camera to gait** — start-to-goal navigation with no keyboard input,
+      8/8 from random start headings and 4/4 recoveries from being rotated mid-walk. No retraining:
+      perception feeds the same three velocity commands a keypress would
 - [x] **Fixed four upstream bugs** and diagnosed two more — table at the top of this file
 - [x] Collected 51 STL parts + print plan (PLA 990 g + TPU 34 g, Bambu H2D/X1C)
 - [x] **Measured actuator torque headroom before committing to the parts order** — the sim
