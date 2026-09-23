@@ -174,11 +174,21 @@ An `ssh` timeout from home is expected behavior, not a fault.
 
 ## Quick start — watch a policy run
 
+PowerShell:
+
 ```
 cd <repo_parent>\Open_Duck_Playground
-set PYTHONPATH=<repo_parent>\Open_Duck_Playground
-..\.venv\Scripts\python.exe -u -m playground.open_duck_mini_v2.mujoco_infer -o ..\BEST_WALK_ONNX_2.onnx
+$env:PYTHONPATH="."
+..\.venv\Scripts\python.exe -u -m playground.open_duck_mini_v2.mujoco_infer -o ..\BEST_WALK_ONNX_2.onnx --forcerange 1.86
 ```
+
+(`set PYTHONPATH=…` and `&&` are cmd syntax and fail in PowerShell.)
+
+**State the torque.** The scene pins `forcerange` at ±3.23 N·m; the real servo stalls at 1.86 and
+`fr186` was trained there. A policy driven at a ceiling it never trained on walks a gait it never
+learned — `fr186` at ±3.23 circles left. The viewer prints the scene, the head mode and the torque
+on startup for this reason. Add `--ref_range` for policies trained after 2026-09-04 (`hw*`, `fr*`),
+never for `BEST_WALK_ONNX_2` or `head`.
 
 For standup policies, point at the scene that has torso collision geometry:
 `--model_path playground\open_duck_mini_v2\xmls\scene_standup.xml`
@@ -193,7 +203,7 @@ For standup policies, point at the scene that has torso collision geometry:
 | P / ; | Gait frequency ±0.1 |
 | **R** | **Full reset** (added by this project. Do not use Backspace — it falls over instantly) |
 | 1–5 / 0 | Five dance moves / stop |
-| T | Toggle direct head control |
+| T | Toggle direct head control — **off by default, and leave it off while driving.** Pinning the head by command instead of letting the policy hold it bends the walk on its own: 40 s of forward command swings +305.6° with it on versus −26.7° with it off |
 | **N** | **Walk to the goal by itself** — turn until the person is found, go, stop |
 | F | Follow the person (the `go` half of N, without the search) |
 | V / G | Toggle obstacle avoidance / head tracking |
