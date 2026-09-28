@@ -157,3 +157,184 @@ def steer(bearings, free, target_bearing_deg, clearance_m,
     chosen = float(bearings[ok][int(np.argmax(score))])
     side = int(np.sign(chosen - target_bearing_deg)) or prefer_side
     return chosen, False, side
+
+
+class ObstacleMemory:
+    """본 장애물을 월드 좌표로 들고 있는다. **카메라 사각에 들어가도 안 사라지게.**
+
+    카메라는 가까운 바닥을 못 본다 (`min_visible_range`, 약 0.54 m). 18 cm 벽에
+    30 cm 까지 다가가면 화면 맨 아랫줄이 벽 윗면 높이에 걸려, `free_space` 는
+    **벽 너머 바닥을 보고 "1.2 m 비었다" 고 답한다.** 한 프레임만 믿으면 우회를
+    풀고 벽으로 직진한다. 실제로 그렇게 벽에 붙어 20초를 밀었다 (2026-09-28,
+    eval_goto 0/4).
+
+    그래서 밑변이 화면 안에 보일 때 찍은 위치를 기억한다. 지우는 조건은 하나 —
+    **그 자리 바닥이 지금 보이는데 비어 있을 때**다. 사각에 들어가 안 보이는 것과
+    치워진 것을 가를 방법이 이것뿐이다. 시간으로 지우면 벽 앞에 오래 서 있다가
+    잊고 박는다.
+
+    자세는 시뮬에서는 참값, 실기에서는 오도메트리(자이로 z + 명령 속도 적분)다.
+    몇 초짜리 기억이라 드리프트는 문제가 안 된다 — 도착 판정도 같은 가정을 쓴다.
+    """
+
+    def __init__(self, keep_m=1.5, record_m=1.0, clear_margin_m=0.10, grid_m=0.02,
+                 point_r_m=0.05):
+        self.keep_m = keep_m              # 이보다 멀어진 점은 버린다 (지나왔거나 멀다)
+        # 이보다 먼 밑변은 새로 넣지 않는다. 멀수록 거리 추정이 앞뒤로 번져서
+        # (걷는 중 머리 까딱임), 기둥 하나가 시선 방향으로 40 cm 길쭉하게 기억되고
+        # 그걸 크게 돌아가느라 시간을 다 썼다 (2026-09-28). 우회 결정은 1 m 안에서 한다.
+        self.record_m = record_m
+        self.clear_margin_m = clear_margin_m
+        self.grid_m = grid_m              # 같은 칸에 여러 번 찍히면 하나로 친다
+        # 점 하나가 가리는 폭. 멀리서 방위 칸마다 한 점씩 찍으면 점 간격이 몇 cm 인데,
+        # 다가가면 같은 점들이 넓은 각에 흩어져 칸 사이에 구멍이 난다. 그 구멍으로
+        # 벽 너머 바닥값이 새어 나온다. 반경을 줘서 가까울수록 넓은 각을 덮게 한다.
+        self.point_r_m = point_r_m
+        self.pts = np.zeros((0, 2))
+
+    def reset(self):
+        self.pts = np.zeros((0, 2))
+
+    def update(self, cam_xy, heading_deg, bearings, free, blind_m):
+        """이번 프레임을 반영하고, 기억을 합친 여유거리를 돌려준다.
+
+        cam_xy      : 카메라의 월드 xy (바닥 투영).
+        heading_deg : bearings 의 0 이 가리키는 월드 방위 (몸통 프레임이면 몸통 요).
+        bearings, free : free_space 결과. bearings 는 heading 기준으로 옮겨 둔 것.
+        blind_m     : min_visible_range. 이보다 가까운 free 값은 측정이 아니라
+                      "화면 아래 끝까지 뭔가 있다" 는 하한일 뿐이다.
+        """
+        cam_xy = np.asarray(cam_xy, dtype=float)
+        free = np.asarray(free, dtype=float)
+        half = abs(bearings[1] - bearings[0]) / 2.0 if len(bearings) > 1 else 180.0
+
+        def locate(pts):
+            rel = pts - cam_xy
+            r = np.hypot(rel[:, 0], rel[:, 1])
+            b = np.degrees(np.arctan2(rel[:, 1], rel[:, 0])) - heading_deg
+            b = (b + 180.0) % 360.0 - 180.0
+            idx = np.argmin(np.abs(b[:, None] - bearings[None, :]), axis=1)
+            in_fov = np.abs(b - bearings[idx]) <= half
+            return r, idx, in_fov
+
+        # 1) 지금 보이는 바닥 위에 있어야 할 점은 지운다. 그 방위의 바닥이
+        #    free[idx] 까지 비어 보이는데 점이 그 안쪽(사각 바깥)에 있으면 틀린 기억이다.
+        if len(self.pts):
+            r, idx, in_fov = locate(self.pts)
+            seen_empty = (in_fov & (r > blind_m + 0.02)
+                          & (r < free[idx] - self.clear_margin_m))
+            self.pts = self.pts[~seen_empty & (r < self.keep_m)]
+
+        # 2) 밑변이 화면 안에 찍힌 것만 새로 넣는다. free 가 사각 경계에 붙어 있으면
+        #    밑변은 화면 아래로 빠져 있다 — 실제로는 더 가까울 수 있어 위치를 모른다.
+        th = np.radians(heading_deg + np.asarray(bearings))
+        new = (free > blind_m + 0.02) & (free < min(self.record_m, MAX_RANGE_M))
+        if new.any():
+            p = cam_xy + free[new, None] * np.stack([np.cos(th[new]), np.sin(th[new])], 1)
+            pts = np.vstack([self.pts, p])
+            key = np.round(pts / self.grid_m).astype(np.int64)
+            _, keep = np.unique(key, axis=0, return_index=True)
+            self.pts = pts[np.sort(keep)]
+
+        # 3) 기억을 방위별로 합친다. 가까운 쪽이 이긴다.
+        out = free.copy()
+        if len(self.pts):
+            rel = self.pts - cam_xy
+            r = np.hypot(rel[:, 0], rel[:, 1])
+            b = np.degrees(np.arctan2(rel[:, 1], rel[:, 0])) - heading_deg
+            b = (b + 180.0) % 360.0 - 180.0
+            ext = np.degrees(np.arctan2(self.point_r_m, np.maximum(r, 1e-3)))
+            for i, bi in enumerate(bearings):
+                hit = np.abs(b - bi) <= half + ext
+                if hit.any():
+                    out[i] = min(out[i], float(r[hit].min()))
+        return out
+
+
+def detour_waypoint(pts, robot_xy, target_xy, side=0, half_width_m=0.12,
+                    margin_m=0.10, target_clear_m=0.45, link_m=0.10):
+    """표적까지 직선을 막는 장애물을 돌아갈 경유점을 **월드 좌표로** 고른다.
+
+    `steer` 는 방향만 준다. 정책이 명령한 각도를 덜 따라가면 그 차이가 그대로
+    쌓여 모서리를 못 비킨다 — 실제로 −35° 를 시키면 −12° 로 가서 벽 모서리를
+    몇 cm 남기고 막혔다 (2026-09-28). 경유점을 월드에 박아 두면 매 스텝 실제
+    위치에서 다시 조준하므로, 덜 간 만큼 저절로 더 꺾는다.
+
+    경유점은 **막는 덩어리의 모서리를 접선으로 스치는 점**이다 (아래 주석).
+    매 스텝 새 위치에서 다시 잡으므로 로봇은 모서리를 반경 w 로 감아 돈다.
+    모서리를 지나 표적까지 직선이 비면 경유점이 저절로 풀린다. 벽의 두께(뒷면)는
+    안 보이지만 여유 10 cm 가 그걸 먹는다.
+
+    pts        : ObstacleMemory.pts — 본 장애물 밑변 (N,2)
+    side       : 지난번에 고른 쪽 (+1 왼쪽, -1 오른쪽, 0 없음). 매번 새로 고르면
+                 두 쪽 길이가 비슷할 때 좌우로 흔들린다.
+    target_clear_m : 표적에서 이 반경 안의 점은 표적 자신(사람 발)으로 보고 아예 뺀다.
+                 0.35 를 앞뒤 거리로만 재서 뺐더니, 걷는 중 머리 까딱임으로 앞뒤로
+                 번진 발 점 몇 개가 "막는 점" 으로 남고, 연결을 타고 사람 발 덩어리
+                 전체가 장애물이 되어 경유점이 사람 옆으로 튀었다 (2026-09-28).
+                 어차피 0.55 m 에서 서므로 그 안의 장애물은 볼 일이 없다.
+
+    반환: (경유점 xy 또는 None, 고른 쪽). None 이면 표적까지 직선이 비었다.
+    """
+    pts = np.asarray(pts, dtype=float).reshape(-1, 2)
+    P = np.asarray(robot_xy, dtype=float)
+    T = np.asarray(target_xy, dtype=float)
+    d = T - P
+    L = float(np.hypot(d[0], d[1]))
+    if L < 1e-6 or len(pts) == 0:
+        return None, 0
+    pts = pts[np.hypot(*(pts - T).T) > target_clear_m]
+    if len(pts) == 0:
+        return None, 0
+    u = d / L
+    n = np.array([-u[1], u[0]])            # 왼쪽 법선
+    rel = pts - P
+    s, l = rel @ u, rel @ n
+    w = half_width_m + margin_m
+
+    block = (s > 0.0) & (s < L) & (np.abs(l) < w)
+    if not block.any():
+        return None, 0
+
+    # 막는 점에서 시작해 이어진 점을 모은다. 통로 밖으로 뻗은 벽의 나머지까지
+    # 알아야 어디가 끝(모서리)인지 안다.
+    member, frontier = block.copy(), block.copy()
+    while frontier.any():
+        gap = np.hypot(pts[:, None, 0] - pts[None, frontier, 0],
+                       pts[:, None, 1] - pts[None, frontier, 1]).min(axis=1)
+        new = (gap < link_m) & ~member
+        member |= new
+        frontier = new
+
+    # 모서리 = 로봇에서 봤을 때 **각이 가장 바깥인** 점 (앞쪽 점만). 경유점은 그
+    # 모서리에서 시선(로봇->모서리)에 수직으로 바깥에 찍는다. 그러면 로봇->경유점
+    # 직선 전체가 모서리에서 w 만큼 떨어진다 (접선). 모서리와 같은 앞뒤 위치에
+    # 옆으로만 띄우면 가는 길이 모서리를 13 cm 로 스쳐 걸렸다 (반폭 12 cm).
+    idx = np.nonzero(member & (s > 0.0))[0]
+    if len(idx) == 0:
+        return None, 0
+    ang = np.arctan2(l[idx], s[idx])       # 표적 방향 기준, 왼쪽 +
+    cand = {}
+    for sd in (+1, -1):
+        k = idx[np.argmax(ang)] if sd > 0 else idx[np.argmin(ang)]
+        r = pts[k] - P
+        rn = float(np.hypot(r[0], r[1]))
+        nc = sd * np.array([-r[1], r[0]]) / max(rn, 1e-6)
+        # 직선과 모서리 사이 거리가 정확히 w 가 되는 오프셋. 이미 w 안쪽이면 w 로.
+        off = w * rn / np.sqrt(rn * rn - w * w) if rn > w * 1.05 else w
+        cand[sd] = pts[k] + off * nc
+
+    def detour_len(sd):
+        return float(np.hypot(*(cand[sd] - P)) + np.hypot(*(T - cand[sd])))
+
+    order = sorted((+1, -1), key=detour_len)
+    # 한 번 고른 쪽은 반대쪽이 확실히 짧을 때만 버린다. 0.15 로는 기억이 조금씩
+    # 바뀔 때마다 1초 간격으로 좌우가 뒤집혀 제자리에서 흔들렸다.
+    if side in (+1, -1) and detour_len(side) <= detour_len(-side) + 0.5:
+        order = [side, -side]
+    # 경유점 자리에 다른 장애물이 있으면 그쪽은 못 쓴다. 반폭 전체로 재면 모서리
+    # 근처에 번져 찍힌 점 하나에도 "막혔다" 가 나서 좌우가 뒤집혔다. 반의반만 본다.
+    for sd in order:
+        if np.hypot(*(pts - cand[sd]).T).min() > 0.5 * half_width_m:
+            return cand[sd], sd
+    return cand[order[0]], order[0]

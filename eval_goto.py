@@ -33,15 +33,13 @@ sys.path.insert(0, REPO)
 
 import mujoco  # noqa: E402
 
-from playground.open_duck_mini_v2.mujoco_infer import MjInfer  # noqa: E402
+from playground.open_duck_mini_v2.mujoco_infer import MjInfer, resolve_policy  # noqa: E402
 
 REFERENCE = "playground/open_duck_mini_v2/data/polynomial_coefficients.pkl"
 SCENE = "playground/open_duck_mini_v2/xmls/scene_person.xml"
-# 기본 정책은 head 910949 다. fr186 이 아니다 — SIM_NOTES "fr186 은 요 제어가
-# 무너졌다" 를 볼 것. fr186 은 제자리 회전이 5°/s 뿐이고 직진 쏠림이 8.7°/s 라,
-# 사람을 찾으려고 돌면 40초를 돌아도 반 바퀴를 못 돈다 (실제로 4판 중 3판을
-# 그렇게 실패했다). head 910949 는 회전 58°/s, 쏠림 0.2°/s 로 이 셋 중 제일 낫다.
-ONNX = "../from_ubai/head_2026_09_04_140643_300482560.onnx"
+# 기본 정책은 mujoco_infer.DEFAULT_POLICY (2026-09-28 부터 hp0dy2 시드 0) 를
+# 학습 조건째로 쓴다. -o 를 주면 그 정책의 조건(--ref_range, --lin_vel_y,
+# --forcerange)을 직접 맞춰 줘야 한다. 09-23 까지의 기본은 head 910949 였다.
 
 FALLEN = 0.5
 
@@ -68,11 +66,15 @@ def twist_base(m, deg):
     mujoco.mj_forward(m.model, m.data)
 
 
-def run_one(m, start, yaw, person, seconds, verbose=False, twist=None):
+def run_one(m, start, yaw, person, seconds, verbose=False, twist=None, avoid=False,
+            face_target=True):
     m.full_reset()
     m.direct_head = False
     m.place(start, yaw, person)
-    m.avoid = False          # 빈 바닥이다. 회피는 장애물을 놓을 때 같이 켠다.
+    # 빈 바닥이면 끈다. 장애물 씬에서는 --avoid 로 켠다 — 뷰어의 N 은 회피를
+    # 켠 채로 돌므로(`self.avoid = True` 기본값) 그 조건을 재려면 켜야 한다.
+    m.avoid = avoid
+    m.face_target = face_target
     m.start_goto()
 
     ctrl_dt = m.sim_dt * m.decimation
@@ -118,7 +120,8 @@ def run_one(m, start, yaw, person, seconds, verbose=False, twist=None):
 
 def main():
     ap = argparse.ArgumentParser(description="출발점 -> 도착점 자율 이동 측정")
-    ap.add_argument("-o", "--onnx_model_path", type=str, default=ONNX)
+    ap.add_argument("-o", "--onnx_model_path", type=str, default=None,
+                    help="안 주면 기본 정책(DEFAULT_POLICY)을 학습 조건째로")
     ap.add_argument("--model_path", type=str, default=SCENE)
     ap.add_argument("--seconds", type=float, default=35.0)
     ap.add_argument("--start", type=float, nargs=2, default=[0.0, 0.0])
@@ -135,9 +138,17 @@ def main():
                     help="T 초에 몸통을 DEG 만큼 홱 돌려놓는다 (건드렸을 때 "
                          "다시 찾아가는지). 예: --twist 8 150")
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--avoid", action="store_true",
+                    help="장애물 회피를 켠다 (뷰어 N 과 같은 조건). "
+                         "장애물 씬(scene_obstacles.xml)을 줄 때 붙일 것")
+    ap.add_argument("--no_face_target", action="store_true",
+                    help="우회할 때 몸통을 갈 방향으로 튼다 (기본은 몸통을 사람에 "
+                         "고정하고 게걸음으로 비킨다)")
     ap.add_argument("--ref_range", action="store_true",
                     help="2026-09-04 이후 좁은 dy(±0.111)로 학습된 정책이면 붙일 것. "
                          "기본 정책(head 910949)은 넓은 dy 라 붙이면 안 된다.")
+    ap.add_argument("--lin_vel_y", type=float, default=None,
+                    help="게걸음 범위만 덮어쓴다. hp0dy2 정책은 --ref_range --lin_vel_y 0.2")
     ap.add_argument("--forcerange", type=float, default=None,
                     help="토크 상한[N·m]. 씬 XML 은 ±3.23 고정인데 fr186 계열은 "
                          "±1.86 으로 학습됐다. 학습값과 다르면 걸음이 딴판이 된다")
@@ -149,8 +160,11 @@ def main():
         yaws = args.yaw
     else:
         yaws = DEFAULT_YAWS
+    (args.onnx_model_path, args.ref_range, args.lin_vel_y,
+     args.forcerange) = resolve_policy(args.onnx_model_path, args.ref_range,
+                                       args.lin_vel_y, args.forcerange)
     m = MjInfer(args.model_path, REFERENCE, args.onnx_model_path,
-                False, args.ref_range)
+                False, args.ref_range, args.lin_vel_y)
     if args.forcerange is not None:
         m.model.actuator_forcerange[:] = np.array([-args.forcerange,
                                                    args.forcerange])
@@ -161,7 +175,12 @@ def main():
     print(" 출발 ({:.2f}, {:.2f})  ->  도착 ({:.2f}, {:.2f})   거리 {:.2f} m   제한 {:.0f}초"
           .format(args.start[0], args.start[1], args.person[0], args.person[1],
                   d_goal, args.seconds))
-    print(" 장애물 없음 · 회피 OFF · 정지 반경 {:.2f} m".format(m.FOLLOW_STOP_M))
+    print(" {} · 회피 {} · 정지 반경 {:.2f} m".format(
+        os.path.basename(args.model_path), "ON" if args.avoid else "OFF",
+        m.FOLLOW_STOP_M))
+    if args.avoid:
+        print(" 우회: {}".format("몸통을 갈 방향으로" if args.no_face_target
+                                 else "몸통은 사람 쪽, 게걸음으로"))
     print("=" * 72)
     print("  {:>7} {:>9} {:>9} {:>9} {:>8}  {}".format(
         "출발방위", "발견[s]", "도착[s]", "최종거리", "최저up", "결과"))
@@ -169,7 +188,7 @@ def main():
     ok = 0
     for yaw in yaws:
         r = run_one(m, args.start, yaw, args.person, args.seconds, args.verbose,
-                    args.twist)
+                    args.twist, args.avoid, not args.no_face_target)
         if r["min_up"] < FALLEN:
             verdict = "넘어짐 {:.1f}s".format(r["t_end"])
         elif r["arrive_t"] is not None:
