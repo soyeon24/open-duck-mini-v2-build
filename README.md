@@ -224,6 +224,13 @@ Commands latch until changed. The viewer window must have focus.
 (`mujoco_playground._src.collision` was removed in playground 0.1.0).
 Inference only needs onnxruntime, so it runs fine on the newer stack.
 
+Both are pinned in `requirements-infer.txt` / `requirements-train-cpu.txt` (Python 3.12):
+
+```
+py -3.12 -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements-infer.txt
+```
+
 ---
 
 ## Done so far

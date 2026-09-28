@@ -1,0 +1,3 @@
+# Scripts in ubai/ are scp-ed to a Linux cluster; sbatch rejects CRLF.
+*.sh     text eol=lf
+*.sbatch text eol=lf
