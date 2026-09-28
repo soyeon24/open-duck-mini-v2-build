@@ -34,11 +34,11 @@ from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 import band_tracker  # noqa: E402
 from eval_bearing import truth_bearing, BAND_Z  # noqa: E402
-from playground.open_duck_mini_v2.mujoco_infer import MjInfer  # noqa: E402
+from playground.open_duck_mini_v2.mujoco_infer import MjInfer, resolve_policy  # noqa: E402
 
 REFERENCE = "playground/open_duck_mini_v2/data/polynomial_coefficients.pkl"
 SCENE = "playground/open_duck_mini_v2/xmls/scene_obstacles.xml"
-ONNX = "../from_ubai/fr186_2026_09_12_174638_300482560.onnx"
+# 기본 정책은 mujoco_infer.DEFAULT_POLICY 를 학습 조건째로 쓴다 (-o 를 안 줄 때).
 
 
 # 한글 글리프가 있는 폰트를 먼저 찾는다. arial 로 그리면 전부 두부(□)가 된다.
@@ -63,7 +63,10 @@ def load_font(size):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("-o", "--onnx_model_path", type=str, default=ONNX)
+    ap.add_argument("-o", "--onnx_model_path", type=str, default=None,
+                    help="안 주면 기본 정책(DEFAULT_POLICY)을 학습 조건째로")
+    ap.add_argument("--lin_vel_y", type=float, default=None,
+                    help="게걸음 범위만 덮어쓴다 (-o 로 hp0dy2 계열을 줄 때 0.2)")
     ap.add_argument("--model_path", type=str, default=SCENE)
     ap.add_argument("--seconds", type=float, default=9.0)
     ap.add_argument("--fps", type=float, default=15.0)
@@ -80,6 +83,8 @@ def main():
     ap.add_argument("--person", type=float, nargs=2, default=None,
                     help="사람(=도착점) x y. --goto 면 제자리에 세워 둔다")
     ap.add_argument("--no_ref_range", action="store_true")
+    ap.add_argument("--forcerange", type=float, default=None,
+                    help="토크 상한[N·m]. 안 주면 기본 정책은 1.86, -o 는 씬 값(3.23)")
     ap.add_argument("--en", action="store_true",
                     help="라벨을 영어로. README 처럼 영어로 읽히는 자리에 쓸 것")
     args = ap.parse_args()
@@ -87,8 +92,13 @@ def main():
 
     PW, PH = args.panel
 
+    (args.onnx_model_path, rr, args.lin_vel_y,
+     args.forcerange) = resolve_policy(args.onnx_model_path, not args.no_ref_range,
+                                       args.lin_vel_y, args.forcerange)
     m = MjInfer(args.model_path, REFERENCE, args.onnx_model_path,
-                False, not args.no_ref_range)
+                False, rr, args.lin_vel_y)
+    if args.forcerange is not None:
+        m.model.actuator_forcerange[:] = np.array([-args.forcerange, args.forcerange])
     m.full_reset()
     m.direct_head = False
     if args.goto:

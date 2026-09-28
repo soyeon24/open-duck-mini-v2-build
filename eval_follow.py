@@ -34,11 +34,11 @@ sys.path.insert(0, REPO)
 import mujoco  # noqa: E402
 
 from eval_bearing import truth_bearing, BAND_Z  # noqa: E402
-from playground.open_duck_mini_v2.mujoco_infer import MjInfer  # noqa: E402
+from playground.open_duck_mini_v2.mujoco_infer import MjInfer, resolve_policy  # noqa: E402
 
 REFERENCE = "playground/open_duck_mini_v2/data/polynomial_coefficients.pkl"
 SCENE = "playground/open_duck_mini_v2/xmls/scene_obstacles.xml"
-ONNX = "../from_ubai/fr186_2026_09_12_174638_300482560.onnx"
+# 기본 정책은 mujoco_infer.DEFAULT_POLICY 를 학습 조건째로 쓴다 (-o 를 안 줄 때).
 
 
 def yaw_of(quat):
@@ -48,7 +48,10 @@ def yaw_of(quat):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("-o", "--onnx_model_path", type=str, default=ONNX)
+    ap.add_argument("-o", "--onnx_model_path", type=str, default=None,
+                    help="안 주면 기본 정책(DEFAULT_POLICY)을 학습 조건째로")
+    ap.add_argument("--lin_vel_y", type=float, default=None,
+                    help="게걸음 범위만 덮어쓴다 (-o 로 hp0dy2 계열을 줄 때 0.2)")
     ap.add_argument("--model_path", type=str, default=SCENE)
     ap.add_argument("--seconds", type=float, default=20.0)
     ap.add_argument("--person", type=float, nargs=2, default=[2.4, 0.9],
@@ -72,8 +75,11 @@ def main():
                          "±1.86 으로 학습됐다. 학습값과 다르면 걸음이 딴판이 된다")
     args = ap.parse_args()
 
+    (args.onnx_model_path, rr, args.lin_vel_y,
+     args.forcerange) = resolve_policy(args.onnx_model_path, not args.no_ref_range,
+                                       args.lin_vel_y, args.forcerange)
     m = MjInfer(args.model_path, REFERENCE, args.onnx_model_path,
-                False, not args.no_ref_range)
+                False, rr, args.lin_vel_y)
     if args.forcerange is not None:
         m.model.actuator_forcerange[:] = np.array([-args.forcerange,
                                                    args.forcerange])

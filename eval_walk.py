@@ -53,7 +53,13 @@ DEFAULT_POLICIES = [
     ("head 910949   dy+-0.2", "head_2026_09_04_140643_300482560.onnx", False, 3.23),
     ("hw8           dy+-0.111", "hw8_2026_09_06_151227_300482560.onnx", True, 3.23),
     ("fr186         dy+-0.111", "fr186_2026_09_12_174638_300482560.onnx", True, 1.86),
+    # 09-28 부터 기본 정책. 전진은 정합값, 게걸음은 원본 0.2 라 ref_range 에 더해
+    # 게걸음 범위를 따로 준다 (아래 LIN_VEL_Y).
+    ("hp0dy2 시드0  dy+-0.2", "hp0dy2_2026_09_28_102045_300482560.onnx", True, 1.86),
 ]
+
+# ref_range 두 모드로 표현이 안 되는 정책의 게걸음 범위. 없으면 ref_range 를 따른다.
+LIN_VEL_Y = {"hp0dy2_2026_09_28_102045_300482560.onnx": 0.2}
 
 CMDS = [
     ("정지", (0, 0, 0)),
@@ -130,6 +136,8 @@ def main():
     p.add_argument("--forcerange", type=float, default=None,
                    help="토크 상한[N·m] 을 전부 이 값으로 덮어쓴다. 안 주면 정책마다 "
                         "학습 당시 값을 쓴다 (-o 로 줄 땐 3.23)")
+    p.add_argument("--lin_vel_y", type=float, default=None,
+                   help="-o 로 준 정책의 게걸음 범위. hp0dy2 는 --ref_range --lin_vel_y 0.2")
     p.add_argument("--seconds", type=float, default=12.0)
     p.add_argument("--scene", default=SCENE)
     args = p.parse_args()
@@ -145,14 +153,16 @@ def main():
     print(f"{os.path.basename(args.scene)} · {args.seconds:.0f}초/조건 · 머리는 정책이 구동")
     for label, path, rr, fr in policies:
         path = path if os.path.isabs(path) else os.path.join(ROOT, path)
-        m = MjInfer(args.scene, REFERENCE, path, standing=False, ref_range=rr)
+        m = MjInfer(args.scene, REFERENCE, path, standing=False, ref_range=rr,
+                    lin_vel_y=(args.lin_vel_y if args.onnx
+                               else LIN_VEL_Y.get(os.path.basename(path))))
         # 토크 상한을 그 정책이 학습된 값으로 맞춘다. 씬 XML 은 3.23 으로 고정돼
         # 있어서, 1.86 으로 학습된 정책을 그냥 굴리면 학습 때보다 74% 센 토크를
         # 주고 재게 된다.
         m.model.actuator_forcerange[:] = np.array([-fr, fr])
         m.heading_hold = args.heading_hold
         print("=" * 76)
-        print(f"{label}   (ref_range={rr}, forcerange=±{fr}"
+        print(f"{label}   (ref_range={rr}, dy=±{m.COMMANDS_RANGE_Y[1]}, forcerange=±{fr}"
               f"{', 방위유지 ON' if args.heading_hold else ''})")
         print(f"  {'명령':<14} {'전진cm':>8} {'횡cm':>8} {'누적 요°':>10} {'최저 up':>9}  비고")
         for cname, cmd in CMDS:
