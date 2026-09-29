@@ -117,8 +117,49 @@ Two bugs surfaced while measuring this, both older than the feature:
   entirely. The robot walked straight past the person. Arrival now triggers on whichever of the
   camera range and the goal coordinate lands first; either one alone deadlocks.
 
-Obstacles are deliberately absent here. Reactive avoidance is a separate problem, and mixing it in
-makes a failure unattributable to either layer.
+Obstacles were deliberately absent from that scoring — mixing them in makes a failure unattributable
+to either layer. They come next.
+
+### Around a wall
+
+![Going round a wall, a pillar and a ledge to the goal](media/goto_wall.gif)
+
+*The same trip with an 18 cm wall, a pillar and a 6 cm ledge between start and goal, started 90° off
+the goal. Still no retraining: the obstacles only change which velocity commands perception writes.*
+
+The camera cannot see the floor within 0.54 m, so the wall slides out of view 30 cm before contact
+and the floor beyond it reads as open — the robot walked straight into it. Two layers fix that:
+
+- **Obstacles are remembered where the camera saw their base**, in world coordinates, and a point is
+  forgotten only when that patch of floor is visible and empty again. A timer would forget a wall the
+  robot had been standing in front of.
+- **The detour is planned with A\*** over the remembered points (4 cm grid, cells within 16 cm closed,
+  unknown space free, re-planned every control step) and followed at forward 0.15 m/s plus a
+  proportional turn — the combination the policy executes best. Rounding one corner at a time had
+  parked the robot in a gap narrower than its body.
+
+| Wall scene, 1.86 N·m, current default policy | Result |
+|---|---|
+| Four start headings | **4 / 4 arrived**, 23.8–31.9 s (one corner at a time: 2 / 4) |
+| Eight random start headings | **8 / 8** within 60 s; 6 / 8 within 40 s — the two late ones spent 15–17 s finding the person |
+
+That is about twice the 9.7–18.8 s the same policy needs on an empty floor: remembered points are
+smeared, so the 39 cm wall–pillar gap looks narrower than it is, and the pillar only enters memory
+inside 1 m, so the path swings wide late.
+
+**What the policy still cannot do is back up or step aside from a standstill.** Planning around what
+it has seen needs neither, but anything that turns up inside the camera's blind 0.54 m leaves no room
+to turn:
+
+![Back, left and right from a standstill, two policies](media/avoid_moves.gif)
+
+*Same keys, fixed camera, 1.86 N·m. Left, the current default only marks time (+0 / +1 cm); right,
+the Aug 31 run backs up 20 cm and side-steps 23 cm.*
+
+Backing up disappeared with the fix for bug #4 above: runs 910949 and 910953 differ only in that
+change and back up at 7.1 and 0.1 cm/s at the torque both trained on. Four runs that put the
+original forward range back and sample single-axis commands on purpose are training now (jobs
+995724–995727, a 2 × 2 with the current default; `SIM_NOTES.md`, 2026-09-29).
 
 ---
 
