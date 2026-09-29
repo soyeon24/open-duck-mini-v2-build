@@ -146,6 +146,9 @@ def main():
                    help="-o 로 준 정책의 게걸음 범위. hp0dy2 는 --ref_range --lin_vel_y 0.2")
     p.add_argument("--seconds", type=float, default=12.0)
     p.add_argument("--scene", default=SCENE)
+    p.add_argument("--head_action_scale", type=float, default=None,
+                   help="머리 4축의 action_scale (나머지는 0.25). head_as 는 1.5 로 학습됐다 — "
+                        "안 주면 머리를 학습 때의 1/6 만 움직인 채로 잰다")
     p.add_argument("--brief", action="store_true",
                    help="정책마다 한 줄 (이동 명령은 그 축 cm, 회전 명령은 누적 요°). "
                         "잡 하나의 체크포인트를 전부 나란히 볼 때")
@@ -177,6 +180,10 @@ def main():
         # 주고 재게 된다.
         m.model.actuator_forcerange[:] = np.array([-fr, fr])
         m.heading_hold = args.heading_hold
+        if args.head_action_scale is not None:
+            scale = np.full(len(m.default_actuator), m.action_scale, dtype=float)
+            scale[5:9] = args.head_action_scale
+            m.action_scale = scale
         if args.brief:
             vals, falls = [], 0
             with contextlib.redirect_stdout(io.StringIO()):  # 리셋마다 찍는 로그
