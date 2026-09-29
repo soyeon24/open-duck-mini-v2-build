@@ -157,9 +157,12 @@ to turn:
 the Aug 31 run backs up 20 cm and side-steps 23 cm.*
 
 Backing up disappeared with the fix for bug #4 above: runs 910949 and 910953 differ only in that
-change and back up at 7.1 and 0.1 cm/s at the torque both trained on. Four runs that put the
-original forward range back and sample single-axis commands on purpose are training now (jobs
-995724–995727, a 2 × 2 with the current default; `SIM_NOTES.md`, 2026-09-29).
+change and back up at 7.1 and 0.1 cm/s at the torque both trained on. Putting the original forward
+range back did not return it, though: of four 300 M runs at the real torque limit (jobs
+995724–995727, a 2 × 2 with the current default), none backs up at any checkpoint. Every policy
+that does back up was trained at the simulator's 3.23 N·m *and* with the original range. Zeroing
+each command axis with probability 0.4, the other half of that 2 × 2, kept all three runs that used
+it from learning to walk at all within 300 M steps (`SIM_NOTES.md`, 2026-09-29).
 
 ---
 

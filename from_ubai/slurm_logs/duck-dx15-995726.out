@@ -1,0 +1,316 @@
+=== node n005.hpc / job 995726 / part gpu1 / start Tue Sep 29 11:34:05 KST 2026 ===
+name, memory.total [MiB], driver_version
+NVIDIA GeForce RTX 3090, 24576 MiB, 595.45.04
+[warm] 웜스타트 대상 없음 → 처음부터
+xml: /gpfs/home1/soyeon24/Open_Duck_Playground/playground/open_duck_mini_v2/xmls/scene_flat_terrain_backlash.xml
+actuators: ['left_hip_yaw', 'left_hip_roll', 'left_hip_pitch', 'left_knee', 'left_ankle', 'neck_pitch', 'head_pitch', 'head_yaw', 'head_roll', 'right_hip_yaw', 'right_hip_roll', 'right_hip_pitch', 'right_knee', 'right_ankle']
+joints: ['floating_base', 'left_hip_yaw', 'left_hip_yaw_backlash', 'left_hip_roll', 'left_hip_roll_backlash', 'left_hip_pitch', 'left_hip_pitch_backlash', 'left_knee', 'left_knee_backlash', 'left_ankle', 'left_ankle_backlash', 'neck_pitch', 'head_pitch', 'head_yaw', 'head_roll', 'right_hip_yaw', 'right_hip_yaw_backlash', 'right_hip_roll', 'right_hip_roll_backlash', 'right_hip_pitch', 'right_hip_pitch_backlash', 'right_knee', 'right_knee_backlash', 'right_ankle', 'right_ankle_backlash']
+backlash joints: ['left_hip_yaw_backlash', 'left_hip_roll_backlash', 'left_hip_pitch_backlash', 'left_knee_backlash', 'left_ankle_backlash', 'right_hip_yaw_backlash', 'right_hip_roll_backlash', 'right_hip_pitch_backlash', 'right_knee_backlash', 'right_ankle_backlash']
+actuator joints ids: [1, 3, 5, 7, 9, 11, 12, 13, 14, 15, 17, 19, 21, 23]
+actuator joints dict: {'left_hip_yaw': 1, 'left_hip_roll': 3, 'left_hip_pitch': 5, 'left_knee': 7, 'left_ankle': 9, 'neck_pitch': 11, 'head_pitch': 12, 'head_yaw': 13, 'head_roll': 14, 'right_hip_yaw': 15, 'right_hip_roll': 17, 'right_hip_pitch': 19, 'right_knee': 21, 'right_ankle': 23}
+floating qpos addr: 0 qvel addr: 0
+[joystick] action_scale: legs 0.250 / head 0.250
+[joystick] lin_vel_x [-0.15, 0.15] / lin_vel_y [-0.2, 0.2] / head_pos_w 0.0 / cmd_axis_zero 0.0
+[Poly ref data] Processing ...
+[Poly ref data] Done processing
+xml: /gpfs/home1/soyeon24/Open_Duck_Playground/playground/open_duck_mini_v2/xmls/scene_flat_terrain_backlash.xml
+actuators: ['left_hip_yaw', 'left_hip_roll', 'left_hip_pitch', 'left_knee', 'left_ankle', 'neck_pitch', 'head_pitch', 'head_yaw', 'head_roll', 'right_hip_yaw', 'right_hip_roll', 'right_hip_pitch', 'right_knee', 'right_ankle']
+joints: ['floating_base', 'left_hip_yaw', 'left_hip_yaw_backlash', 'left_hip_roll', 'left_hip_roll_backlash', 'left_hip_pitch', 'left_hip_pitch_backlash', 'left_knee', 'left_knee_backlash', 'left_ankle', 'left_ankle_backlash', 'neck_pitch', 'head_pitch', 'head_yaw', 'head_roll', 'right_hip_yaw', 'right_hip_yaw_backlash', 'right_hip_roll', 'right_hip_roll_backlash', 'right_hip_pitch', 'right_hip_pitch_backlash', 'right_knee', 'right_knee_backlash', 'right_ankle', 'right_ankle_backlash']
+backlash joints: ['left_hip_yaw_backlash', 'left_hip_roll_backlash', 'left_hip_pitch_backlash', 'left_knee_backlash', 'left_ankle_backlash', 'right_hip_yaw_backlash', 'right_hip_roll_backlash', 'right_hip_pitch_backlash', 'right_knee_backlash', 'right_ankle_backlash']
+actuator joints ids: [1, 3, 5, 7, 9, 11, 12, 13, 14, 15, 17, 19, 21, 23]
+actuator joints dict: {'left_hip_yaw': 1, 'left_hip_roll': 3, 'left_hip_pitch': 5, 'left_knee': 7, 'left_ankle': 9, 'neck_pitch': 11, 'head_pitch': 12, 'head_yaw': 13, 'head_roll': 14, 'right_hip_yaw': 15, 'right_hip_roll': 17, 'right_hip_pitch': 19, 'right_knee': 21, 'right_ankle': 23}
+floating qpos addr: 0 qvel addr: 0
+[joystick] action_scale: legs 0.250 / head 0.250
+[joystick] lin_vel_x [-0.15, 0.15] / lin_vel_y [-0.2, 0.2] / head_pos_w 0.0 / cmd_axis_zero 0.0
+[Poly ref data] Processing ...
+[Poly ref data] Done processing
+Observation size: 101
+PPO params: {'action_repeat': 1, 'batch_size': 256, 'clipping_epsilon': 0.2, 'discounting': 0.97, 'entropy_cost': 0.005, 'episode_length': 1000, 'learning_rate': 0.0003, 'max_grad_norm': 1.0, 'normalize_observations': True, 'num_envs': 8192, 'num_evals': 15, 'num_minibatches': 32, 'num_resets_per_eval': 1, 'num_timesteps': 300000000, 'num_updates_per_batch': 4, 'reward_scaling': 1.0, 'unroll_length': 20, 'seed': 0}
+[randomize] actuator_forcerange ~ U(1.40, 1.90) per joint
+[randomize] actuator_forcerange ~ U(1.40, 1.90) per joint
+-----------
+STEP: 0 reward: 15.074419021606445 reward_std: 8.295181274414062
+-----------
+Saving checkpoint (step: 0): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_113908_0
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.02309905 -0.01063621  0.13225034  0.09340208 -0.07243866  0.17713644
+  0.15884155  0.12745392 -0.00975049 -0.17488673  0.04536586  0.20230038
+  0.1690991  -0.21251443]
+(101,) (101,)
+(101,) (101,)
+Saving checkpoint (step: 21463040): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_114610_21463040
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.4606523  -0.20135242 -0.6709581  -0.7000192   0.12735613  0.81423724
+  0.33395848  0.2466115   0.13161267  0.45526993  0.28519645 -0.07071594
+ -0.40703544  0.6416231 ]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 21463040 reward: 206.0914764404297 reward_std: 146.9129638671875
+-----------
+Saving checkpoint (step: 42926080): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_115106_42926080
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.339751   -0.15773442 -0.22913544  0.04233104 -0.38991964  0.332791
+  0.73704773  0.3843396   0.26896143 -0.19971615  0.01469889 -0.04559723
+ -0.17258823  0.7131703 ]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 42926080 reward: 213.62864685058594 reward_std: 150.8695068359375
+-----------
+Saving checkpoint (step: 64389120): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_115601_64389120
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.2648137   0.6264877  -0.14345351 -0.49826065 -0.58116823 -0.1072327
+  0.41858765  0.76116484  0.44695622  0.16728978 -0.30554774 -0.02370415
+ -0.06370188  0.59124726]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 64389120 reward: 220.02882385253906 reward_std: 156.1164093017578
+-----------
+Saving checkpoint (step: 85852160): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_120057_85852160
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.22100288  0.358187   -0.27984995 -0.33053523 -0.06003286  0.05340908
+  0.20968331  0.33365673  0.41509855  0.10550136  0.38884673  0.34940797
+ -0.17002878  0.9138483 ]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 85852160 reward: 250.78775024414062 reward_std: 169.61679077148438
+-----------
+Saving checkpoint (step: 107315200): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_120554_107315200
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.3936956   0.39210764 -0.2748544  -0.41789392  0.04512222 -0.17570497
+ -0.12604508  0.23847541  0.09245721 -0.07190102  0.19886906  0.41690943
+  0.09267364  0.706158  ]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 107315200 reward: 239.1575927734375 reward_std: 169.57199096679688
+-----------
+Saving checkpoint (step: 128778240): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_121050_128778240
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.31166157  0.53117764 -0.69660497 -0.346579    0.4044357  -0.32679525
+ -0.24221613  0.04094876  0.1099656   0.18374918 -0.15897636  0.47805575
+  0.58775014 -0.30421132]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 128778240 reward: 225.86676025390625 reward_std: 169.25437927246094
+-----------
+Saving checkpoint (step: 150241280): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_121547_150241280
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.91665137  0.13670592 -0.69147867 -0.12657446 -0.29952016 -0.40240747
+  0.35206506 -0.11306742  0.12439878  0.14174314 -0.2763108   0.51823133
+  0.4845624   0.5398153 ]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 150241280 reward: 255.37705993652344 reward_std: 164.2212677001953
+-----------
+Saving checkpoint (step: 171704320): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_122043_171704320
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.91939294 -0.30474436 -0.20335926 -0.51477194 -0.86101073 -0.3766009
+  0.6000476  -0.23672555  0.4600803   0.15458083  0.16321306  0.8583943
+ -0.18715332  0.5063643 ]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 171704320 reward: 246.3189697265625 reward_std: 153.3821258544922
+-----------
+Saving checkpoint (step: 193167360): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_122539_193167360
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.8308463   0.08325212 -0.55777436 -0.5462257  -0.23897631  0.01240762
+  0.5664754  -0.557519    0.6946239   0.47627148  0.21563064  0.87616646
+  0.45152056 -0.30831182]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 193167360 reward: 252.9850616455078 reward_std: 162.09140014648438
+-----------
+Saving checkpoint (step: 214630400): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_123035_214630400
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.5054827  -0.07641523 -0.22322436 -0.05488632 -0.45287344  0.4640504
+  0.607072    0.09218533  0.45345932 -0.11207026 -0.01872338  0.95863014
+  0.68017507  0.13176909]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 214630400 reward: 235.91314697265625 reward_std: 166.1390838623047
+-----------
+Saving checkpoint (step: 236093440): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_123532_236093440
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [-0.09575039 -0.06086462 -0.7084506   0.22522382  0.03575091  0.06970892
+  0.20724481 -0.38175663  0.5470354   0.34464338  0.11490039  0.8871795
+  0.7700961   0.48908868]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 236093440 reward: 218.90904235839844 reward_std: 159.91357421875
+-----------
+Saving checkpoint (step: 257556480): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_124029_257556480
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.690432   -0.02335946 -0.7033553  -0.46942073 -0.795655   -0.5606454
+  0.56189275 -0.4057512   0.4675539  -0.08501166 -0.6581698   0.95211565
+ -0.10779339  0.7704215 ]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 257556480 reward: 240.9603271484375 reward_std: 148.89523315429688
+-----------
+Saving checkpoint (step: 279019520): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_124526_279019520
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.62062913  0.9213601  -0.80069965 -0.8672737  -0.54929185 -0.1331679
+ -0.4264151  -0.92484856  0.65262675  0.8102637  -0.8569527   0.97382456
+ -0.35361323 -0.5294466 ]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 279019520 reward: 257.6180114746094 reward_std: 169.1029510498047
+-----------
+Saving checkpoint (step: 300482560): /gpfs/home1/soyeon24/Open_Duck_Playground/checkpoints_dx15/2026_09_29_125022_300482560
+ === EXPORT ONNX === 
+(101,) (101,)
+(101,) (101,)
+(1, 14)
+Transferring Dense layer hidden_0, kernel shape (101, 512), bias shape (512,)
+Transferring Dense layer hidden_1, kernel shape (512, 256), bias shape (256,)
+Transferring Dense layer hidden_2, kernel shape (256, 128), bias shape (128,)
+Transferring Dense layer hidden_3, kernel shape (128, 28), bias shape (28,)
+Weights transferred successfully.
+(101,) (101,)
+Tensorflow prediction: [ 0.05697133  0.04865934 -0.2543833  -0.8717632  -0.4736016   0.3037066
+ -0.22778518  0.3169479   0.69466573  0.16051133  0.11691541  0.8881563
+  0.4456819   0.15123717]
+(101,) (101,)
+(101,) (101,)
+-----------
+STEP: 300482560 reward: 220.20736694335938 reward_std: 167.08494567871094
+-----------
+=== end Tue Sep 29 12:50:35 KST 2026 / exit 0 ===

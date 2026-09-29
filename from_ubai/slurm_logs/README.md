@@ -31,6 +31,11 @@
 | 973303 | duck-headas | gpu1 | COMPLETED | 1:14:28 | 09-12 20:37 |
 | **984809** | **duck-standup-v5smoke** 2M | gpu1 | COMPLETED | 0:11:50 | 09-15 17:48 |
 | **984812** | **duck-standup-v5** 300M | gpu1 | (제출됨) | — | 09-15 18:01 |
+| 994830 / 994831 | duck-hp0dy2 / duck-hp0dy2-s2 | gpu1 | COMPLETED | 약 1:14 | 09-28 09:06 |
+| 995724 / 995725 | duck-avoid / duck-avoid-s2 | gpu1 | COMPLETED | 1:17:10 / 1:15:43 | 09-29 11:34 |
+| 995726 / 995727 | duck-dx15 / duck-mask | gpu1 | COMPLETED | 1:17:06 / 1:17:48 | 09-29 11:34 |
+
+09-28 이후 줄은 받을 때마다 덧붙인 것이다 (위 줄들은 09-15 에 통째로 받은 것).
 
 ⚠️ **901992 는 `SIM_NOTES.md` 잡 표에 빠져 있었습니다.** v4 (`v4_final_151388160.onnx`) 가
 여기서 나왔습니다. 09-01 에 돌린 것을 기록에 못 넣은 것으로 보입니다.
