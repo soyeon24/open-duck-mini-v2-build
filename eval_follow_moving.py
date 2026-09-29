@@ -116,7 +116,7 @@ class Walker:
 
 def run_one(job):
     """(대본, 속도) 한 판. 프로세스마다 따로 부른다 (렌더러가 프로세스마다 하나)."""
-    name, speed, pol, no_avoid = job
+    name, speed, pol, no_avoid, remember_target = job
     onnx, rr, lin_vel_y, fr = pol
     import contextlib
     import io
@@ -129,6 +129,8 @@ def run_one(job):
     m.heading_hold = False
     if no_avoid:
         m.avoid = False
+    if remember_target:
+        m.target_not_obstacle = False
     walker = Walker(name, speed)
     walker.put(m.data)
     mujoco.mj_forward(m.model, m.data)
@@ -257,6 +259,8 @@ def main():
                     help="사람 걷는 속도 m/s. 오리는 0.11~0.15")
     ap.add_argument("--no_avoid", action="store_true",
                     help="회피를 끄고 잰다. 빈 바닥에서 회피가 따라가기를 방해하는지 가를 때")
+    ap.add_argument("--remember_target", action="store_true",
+                    help="사람 발도 장애물로 기억한다 (target_not_obstacle 끔 = 09-29 이전 동작)")
     ap.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
     ap.add_argument("--plot", type=str, default=os.path.join(ROOT, "head_cam_out", "follow_moving.png"),
                     help="위에서 본 궤적 그림. 빈 문자열이면 안 그린다")
@@ -270,9 +274,12 @@ def main():
     if not os.path.isabs(onnx) and not os.path.exists(onnx):
         onnx = os.path.join(ROOT, onnx)     # -o 는 저장소 루트 기준 (eval_walk 와 같다)
     pol = (os.path.abspath(onnx), rr, lvy, fr)
-    jobs = [(n, v, pol, args.no_avoid) for n in args.scenario for v in args.speeds]
+    jobs = [(n, v, pol, args.no_avoid, args.remember_target)
+            for n in args.scenario for v in args.speeds]
     print(f"정책 {os.path.basename(onnx)} (ref_range={rr}, dy ±{lvy}, 토크 ±{fr}) · "
-          f"회피 {'끔' if args.no_avoid else '켬'} · 빈 바닥 · 사람이 멈춘 뒤 {HOLD_S:.0f}초 더")
+          f"회피 {'끔' if args.no_avoid else '켬'}"
+          f"{' · 사람 발도 기억 (09-29 이전)' if args.remember_target else ''}"
+          f" · 빈 바닥 · 사람이 멈춘 뒤 {HOLD_S:.0f}초 더")
     with cf.ProcessPoolExecutor(max_workers=args.workers) as ex:
         outs = list(ex.map(run_one, jobs))
 
@@ -291,7 +298,8 @@ def main():
           f"{LOST_S:.0f}초 넘게 연달아 놓침 · 빈 바닥 우회 = 헛우회)")
     if args.plot:
         os.makedirs(os.path.dirname(args.plot), exist_ok=True)
-        plot(results, args.plot, f"{os.path.basename(onnx)} · 회피 {'끔' if args.no_avoid else '켬'}")
+        plot(results, args.plot, f"{os.path.basename(onnx)} · 회피 {'끔' if args.no_avoid else '켬'}"
+                                 f"{' · 사람 발도 기억' if args.remember_target else ''}")
         print(f"  그림: {args.plot}")
 
 

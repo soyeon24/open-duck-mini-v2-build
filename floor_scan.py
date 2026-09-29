@@ -197,7 +197,8 @@ class ObstacleMemory:
     def reset(self):
         self.pts = np.zeros((0, 2))
 
-    def update(self, cam_xy, heading_deg, bearings, free, blind_m):
+    def update(self, cam_xy, heading_deg, bearings, free, blind_m,
+               ignore_xy=None, ignore_r_m=0.30):
         """이번 프레임을 반영하고, 기억을 합친 여유거리를 돌려준다.
 
         cam_xy      : 카메라의 월드 xy (바닥 투영).
@@ -205,9 +206,21 @@ class ObstacleMemory:
         bearings, free : free_space 결과. bearings 는 heading 기준으로 옮겨 둔 것.
         blind_m     : min_visible_range. 이보다 가까운 free 값은 측정이 아니라
                       "화면 아래 끝까지 뭔가 있다" 는 하한일 뿐이다.
+        ignore_xy   : 따라가는 사람의 월드 xy. 이 둘레 ignore_r_m 안은 새로 넣지 않고
+                      있던 점도 지운다. 사람 발은 장애물이 아니라 표적이다.
+
+        ignore_xy 가 없던 때는 걸어간 사람의 발자국이 그대로 장애물로 남았다. 지우는
+        조건이 "보이는데 비었을 때" 인데, 그 방위의 첫 장애물이 바로 사람 발이고 오리는
+        0.55~0.7 m 뒤에서 따라가므로 사각(0.54 m)과 사람 사이에 지울 틈이 없다. 빈
+        바닥에서 15판 중 13판이 헛우회했다 (2026-09-29, eval_follow_moving).
+        반경 0.30 m 는 발 끝(발목에서 0.15 m) + 옆에서 볼 때 가까운 쪽 밴드로 쏠리는
+        위치 오차(약 0.10 m) + 여유다. 오리는 사람 0.55 m 앞에서 서므로 그 안의 진짜
+        장애물을 빼먹어도 거기까지 가지 않는다.
         """
         cam_xy = np.asarray(cam_xy, dtype=float)
         free = np.asarray(free, dtype=float)
+        if ignore_xy is not None and len(self.pts):
+            self.pts = self.pts[np.hypot(*(self.pts - np.asarray(ignore_xy)).T) > ignore_r_m]
         half = abs(bearings[1] - bearings[0]) / 2.0 if len(bearings) > 1 else 180.0
 
         def locate(pts):
@@ -233,6 +246,8 @@ class ObstacleMemory:
         new = (free > blind_m + 0.02) & (free < min(self.record_m, MAX_RANGE_M))
         if new.any():
             p = cam_xy + free[new, None] * np.stack([np.cos(th[new]), np.sin(th[new])], 1)
+            if ignore_xy is not None:
+                p = p[np.hypot(*(p - np.asarray(ignore_xy)).T) > ignore_r_m]
             pts = np.vstack([self.pts, p])
             key = np.round(pts / self.grid_m).astype(np.int64)
             _, keep = np.unique(key, axis=0, return_index=True)

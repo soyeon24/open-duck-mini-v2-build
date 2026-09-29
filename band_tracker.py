@@ -35,6 +35,10 @@ MIN_PIXELS = 25
 # 없다. 거리는 "가깝다/멀다" 판정에만 쓰고 제어에 직접 물리지 말 것.
 BAND_SPAN_M = 0.29
 
+# 밴드 중심의 바닥 위 높이 [m] (시뮬 사람: 0.06~0.12 m 원통). `ground_xy` 가 쓴다.
+# 실제로 찰 때 발목 높이를 재서 맞출 것 — 2 cm 틀리면 거리가 약 7% 틀린다.
+BAND_Z_M = 0.09
+
 
 def rgb_to_hsv(rgb):
     """(H,W,3) uint8 RGB -> (H,W,3) float HSV, 전부 0~1. matplotlib 없이 numpy 만."""
@@ -119,3 +123,26 @@ def track(rgb, fovy_deg, min_pixels=MIN_PIXELS):
         "distance_m": float(distance),
         "clipped": clipped,
     }
+
+
+def ground_xy(res, img_shape, fovy_deg, cam_pos, cam_R, z=BAND_Z_M):
+    """밴드 무게중심이 가리키는, 밴드 높이(z) 평면 위의 점을 월드 xy 로. 못 구하면 None.
+
+    `distance_m` 은 두 밴드 덩어리의 **가로폭**으로 낸 값이라, 옆에서 보면 두 발목이
+    겹쳐 폭이 줄고 거리가 부풀려진다 (1.92 m 를 2.18 m 로, 2026-09-23). 무게중심이
+    화면 **어느 높이**에 있는지로 내면 사람이 어느 쪽을 보고 있든 상관없다 —
+    바닥스캔(floor_scan.free_space)이 여유거리를 내는 것과 같은 원리다.
+
+    cam_pos : 카메라 월드 위치 (3,).
+    cam_R   : 카메라 -> 월드 회전 (3,3). MuJoCo 관례대로 카메라는 자기 -z 를 보고,
+              x 가 화면 오른쪽, y 가 위다. 실기에서는 IMU 피치·롤, 머리 관절각,
+              몸통 요(자이로 적분)로 만든다.
+    """
+    hgt, wid = img_shape[:2]
+    f_px = (hgt / 2.0) / np.tan(np.radians(fovy_deg) / 2.0)
+    ray = np.asarray(cam_R, dtype=float) @ np.array(
+        [(res["u"] - wid / 2.0) / f_px, -(res["v"] - hgt / 2.0) / f_px, -1.0])
+    if ray[2] >= -1e-6:       # 밴드 높이보다 위를 보는 광선 — 평면과 안 만난다
+        return None
+    t = (z - float(cam_pos[2])) / ray[2]
+    return np.asarray(cam_pos[:2], dtype=float) + t * ray[:2]
