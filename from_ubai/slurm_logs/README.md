@@ -34,6 +34,7 @@
 | 994830 / 994831 | duck-hp0dy2 / duck-hp0dy2-s2 | gpu1 | COMPLETED | 약 1:14 | 09-28 09:06 |
 | 995724 / 995725 | duck-avoid / duck-avoid-s2 | gpu1 | COMPLETED | 1:17:10 / 1:15:43 | 09-29 11:34 |
 | 995726 / 995727 | duck-dx15 / duck-mask | gpu1 | COMPLETED | 1:17:06 / 1:17:48 | 09-29 11:34 |
+| 995755 | duck-dx15-s2 | gpu1 | COMPLETED | 1:16:48 | 09-29 12:20 |
 
 09-28 이후 줄은 받을 때마다 덧붙인 것이다 (위 줄들은 09-15 에 통째로 받은 것).
 

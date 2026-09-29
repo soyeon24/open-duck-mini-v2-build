@@ -47,6 +47,9 @@ SCENE = "playground/open_duck_mini_v2/xmls/scene_person.xml"   # 장애물 없�
 HOLD_S = 15.0        # 사람이 멈춘 뒤 더 굴리는 시간. 0.13 m/s 로 2 m 를 따라잡는 시간이다
 END_S = 3.0          # "끝 거리" 를 평균낼 마지막 구간
 TOO_CLOSE_M = 0.35   # 이보다 가까우면 붙은 것 (몸통 반길이 ~0.1 + 사람 발 0.11 + 여유)
+# "다가오기" 는 대본이 사람을 25 cm 까지 붙이므로 최소 거리로는 못 가른다. 사람이 멈춘 뒤
+# 끝 거리로 본다 — 이보다 가까우면 물러나지 못한 것이다.
+APPROACH_BACK_M = 0.45
 LOST_S = 5.0         # 이보다 오래 연달아 놓치면 놓친 것
 FAR_M = 0.9          # 끝 거리가 이보다 멀면 못 따라온 것 (정지 거리 0.55 + 카메라 거리 오차)
 APPROACH_STOP_M = 0.25
@@ -116,7 +119,7 @@ class Walker:
 
 def run_one(job):
     """(대본, 속도) 한 판. 프로세스마다 따로 부른다 (렌더러가 프로세스마다 하나)."""
-    name, speed, pol, no_avoid, remember_target = job
+    name, speed, pol, no_avoid, remember_target, no_backoff = job
     onnx, rr, lin_vel_y, fr = pol
     import contextlib
     import io
@@ -131,6 +134,8 @@ def run_one(job):
         m.avoid = False
     if remember_target:
         m.target_not_obstacle = False
+    if no_backoff:
+        m.backoff = False
     walker = Walker(name, speed)
     walker.put(m.data)
     mujoco.mj_forward(m.model, m.data)
@@ -169,7 +174,7 @@ def run_one(job):
     return name, speed, np.array(log, dtype=float), walker.done_t
 
 
-def summarize(log, done_t, ctrl_dt):
+def summarize(log, done_t, ctrl_dt, name=None):
     t, d, bear, seen, detour, up, moving = (log[:, 0], log[:, 5], log[:, 6], log[:, 7] > 0.5,
                                             log[:, 8] > 0.5, log[:, 9], log[:, 10] > 0.5)
     miss = ~seen
@@ -188,11 +193,14 @@ def summarize(log, done_t, ctrl_dt):
     why = []
     if s["fell"]:
         why.append("넘어짐")
-    if s["longest"] > LOST_S:
+    # "다가오기" 는 대본이 사람을 카메라 사각(밴드가 화각 아래로 빠지는 0.46 m 안)으로
+    # 밀어 넣으므로, 다가오는 동안과 물러나는 동안은 제어기가 뭘 하든 못 본다. 그래서
+    # 연달아 놓친 시간 대신 **끝 END_S 초에 다시 보이는가**로 본다.
+    if (seen[end].mean() < 0.5) if name == "approach" else (s["longest"] > LOST_S):
         why.append("놓침")
     if s["d_end"] > FAR_M:
         why.append("멀어짐")
-    if s["d_min"] < TOO_CLOSE_M:
+    if (s["d_end"] < APPROACH_BACK_M) if name == "approach" else (s["d_min"] < TOO_CLOSE_M):
         why.append("붙음")
     if s["detour"] > 0:
         why.append("헛우회")
@@ -259,6 +267,8 @@ def main():
                     help="사람 걷는 속도 m/s. 오리는 0.11~0.15")
     ap.add_argument("--no_avoid", action="store_true",
                     help="회피를 끄고 잰다. 빈 바닥에서 회피가 따라가기를 방해하는지 가를 때")
+    ap.add_argument("--no_backoff", action="store_true",
+                    help="물러나기를 끈다 (09-29 이전 동작, 사람이 다가오면 그냥 선다)")
     ap.add_argument("--remember_target", action="store_true",
                     help="사람 발도 장애물로 기억한다 (target_not_obstacle 끔 = 09-29 이전 동작)")
     ap.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
@@ -274,11 +284,12 @@ def main():
     if not os.path.isabs(onnx) and not os.path.exists(onnx):
         onnx = os.path.join(ROOT, onnx)     # -o 는 저장소 루트 기준 (eval_walk 와 같다)
     pol = (os.path.abspath(onnx), rr, lvy, fr)
-    jobs = [(n, v, pol, args.no_avoid, args.remember_target)
+    jobs = [(n, v, pol, args.no_avoid, args.remember_target, args.no_backoff)
             for n in args.scenario for v in args.speeds]
     print(f"정책 {os.path.basename(onnx)} (ref_range={rr}, dy ±{lvy}, 토크 ±{fr}) · "
           f"회피 {'끔' if args.no_avoid else '켬'}"
           f"{' · 사람 발도 기억 (09-29 이전)' if args.remember_target else ''}"
+          f"{' · 물러나기 끔' if args.no_backoff else ''}"
           f" · 빈 바닥 · 사람이 멈춘 뒤 {HOLD_S:.0f}초 더")
     with cf.ProcessPoolExecutor(max_workers=args.workers) as ex:
         outs = list(ex.map(run_one, jobs))
@@ -288,14 +299,15 @@ def main():
     print(f"\n  {'대본':<24}{'속도':>5}{'걸은초':>7}{'놓침%':>7}{'최장놓침':>8}"
           f"{'걷는중최대':>10}{'끝거리':>8}{'최소':>7}{'방위°':>7}{'우회%':>7}  판정")
     for name, speed, log, done_t in outs:
-        s = summarize(log, done_t, ctrl_dt)
+        s = summarize(log, done_t, ctrl_dt, name)
         results.append((name, speed, log, done_t, s))
         print(f"  {SCENARIOS[name][0]:<24}{speed:5.1f}{s['walk_s']:7.1f}{s['miss']:7.0f}"
               f"{s['longest']:7.1f}s{s['d_walk']:10.2f}{s['d_end']:8.2f}{s['d_min']:7.2f}"
               f"{s['bear']:7.1f}{s['detour']:7.0f}  {s['verdict']}")
     ok = sum(r[4]["verdict"] == "OK" for r in results)
-    print(f"\n  OK {ok}/{len(results)}   (끝거리 > {FAR_M} m 멀어짐 · 최소 < {TOO_CLOSE_M} m 붙음 · "
-          f"{LOST_S:.0f}초 넘게 연달아 놓침 · 빈 바닥 우회 = 헛우회)")
+    print(f"\n  OK {ok}/{len(results)}   (끝거리 > {FAR_M} m 멀어짐 · 최소 < {TOO_CLOSE_M} m 붙음"
+          f" (다가오기는 끝거리 < {APPROACH_BACK_M} m) · "
+          f"{LOST_S:.0f}초 넘게 연달아 놓침 (다가오기는 끝 {END_S:.0f}초에 안 보임) · 빈 바닥 우회 = 헛우회)")
     if args.plot:
         os.makedirs(os.path.dirname(args.plot), exist_ok=True)
         plot(results, args.plot, f"{os.path.basename(onnx)} · 회피 {'끔' if args.no_avoid else '켬'}"
