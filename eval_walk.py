@@ -24,6 +24,8 @@ fr186 은 ±1.86 으로 학습됐다. 2026-09-22 에 "fr186 은 요 제어가 �
 """
 
 import argparse
+import contextlib
+import io
 import os
 import sys
 
@@ -144,6 +146,9 @@ def main():
                    help="-o 로 준 정책의 게걸음 범위. hp0dy2 는 --ref_range --lin_vel_y 0.2")
     p.add_argument("--seconds", type=float, default=12.0)
     p.add_argument("--scene", default=SCENE)
+    p.add_argument("--brief", action="store_true",
+                   help="정책마다 한 줄 (이동 명령은 그 축 cm, 회전 명령은 누적 요°). "
+                        "잡 하나의 체크포인트를 전부 나란히 볼 때")
     args = p.parse_args()
 
     if args.onnx:
@@ -155,16 +160,33 @@ def main():
                     for n, f, r, fr in DEFAULT_POLICIES]
 
     print(f"{os.path.basename(args.scene)} · {args.seconds:.0f}초/조건 · 머리는 정책이 구동")
+    # 체크포인트 15개를 표 15개로 찍으면 비교가 안 된다. 한 줄에 명령마다 그 명령이
+    # 겨냥한 축 하나만 남긴다 (정지는 뺀다).
+    cols = [(c, cmd) for c, cmd in CMDS if any(cmd)]
+    if args.brief:
+        print(f"{'정책':<40}" + "".join(f"{c:>10}" for c, _ in cols) + "  넘어짐")
     for label, path, rr, fr in policies:
         path = path if os.path.isabs(path) else os.path.join(ROOT, path)
-        m = MjInfer(args.scene, REFERENCE, path, standing=False, ref_range=rr,
-                    lin_vel_y=(args.lin_vel_y if args.onnx
-                               else LIN_VEL_Y.get(os.path.basename(path))))
+        quiet = contextlib.redirect_stdout(io.StringIO()) if args.brief else contextlib.nullcontext()
+        with quiet:
+            m = MjInfer(args.scene, REFERENCE, path, standing=False, ref_range=rr,
+                        lin_vel_y=(args.lin_vel_y if args.onnx
+                                   else LIN_VEL_Y.get(os.path.basename(path))))
         # 토크 상한을 그 정책이 학습된 값으로 맞춘다. 씬 XML 은 3.23 으로 고정돼
         # 있어서, 1.86 으로 학습된 정책을 그냥 굴리면 학습 때보다 74% 센 토크를
         # 주고 재게 된다.
         m.model.actuator_forcerange[:] = np.array([-fr, fr])
         m.heading_hold = args.heading_hold
+        if args.brief:
+            vals, falls = [], 0
+            with contextlib.redirect_stdout(io.StringIO()):  # 리셋마다 찍는 로그
+                for _, cmd in cols:
+                    fwd, lat, dyaw, mu, fell = rollout(m, cmd, args.seconds)
+                    vals.append(dyaw if cmd[2] else (lat if cmd[1] else fwd) * 100)
+                    falls += fell is not None
+            print(f"{label[:40]:<40}" + "".join(f"{v:10.1f}" for v in vals) + f"  {falls}",
+                  flush=True)
+            continue
         print("=" * 76)
         print(f"{label}   (ref_range={rr}, dy=±{m.COMMANDS_RANGE_Y[1]}, forcerange=±{fr}"
               f"{', 방위유지 ON' if args.heading_hold else ''})")
