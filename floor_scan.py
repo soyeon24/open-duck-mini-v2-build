@@ -18,6 +18,8 @@ IMU 에서 읽은 자세 두 개(피치/롤)뿐이다.
 측정값) 보정 없이는 지평선이 기울어 거리 계산이 통째로 틀어진다.
 """
 
+import heapq
+
 import numpy as np
 from PIL import Image
 
@@ -338,3 +340,165 @@ def detour_waypoint(pts, robot_xy, target_xy, side=0, half_width_m=0.12,
         if np.hypot(*(pts - cand[sd]).T).min() > 0.5 * half_width_m:
             return cand[sd], sd
     return cand[order[0]], order[0]
+
+
+def _clearance_grid(pts, x0, y0, nx, ny, cell_m, reach_m):
+    """칸마다 가장 가까운 장애물 점까지의 거리. reach_m 보다 먼 칸은 inf.
+
+    점마다 주변 원판을 찍어 최솟값을 남긴다. 칸 수 × 점 수 전부를 재는 것보다
+    훨씬 싸다 (Pi 에서 돌 파일이라 scipy 거리변환은 안 쓴다).
+    """
+    dist = np.full(nx * ny, np.inf, dtype=np.float32)
+    if len(pts) == 0:
+        return dist.reshape(ny, nx)
+    k = int(np.ceil(reach_m / cell_m))
+    oy, ox = np.mgrid[-k:k + 1, -k:k + 1]
+    ox, oy = ox.ravel(), oy.ravel()
+    ci = np.floor((pts[:, 0] - x0) / cell_m).astype(int)
+    cj = np.floor((pts[:, 1] - y0) / cell_m).astype(int)
+    gi = ci[:, None] + ox[None, :]
+    gj = cj[:, None] + oy[None, :]
+    d = np.hypot(x0 + (gi + 0.5) * cell_m - pts[:, 0:1],
+                 y0 + (gj + 0.5) * cell_m - pts[:, 1:2])
+    ok = (gi >= 0) & (gi < nx) & (gj >= 0) & (gj < ny) & (d <= reach_m)
+    np.minimum.at(dist, (gj[ok] * nx + gi[ok]), d[ok].astype(np.float32))
+    return dist.reshape(ny, nx)
+
+
+def plan_path(pts, robot_xy, target_xy, cell_m=0.04, hard_m=0.16, soft_m=0.26,
+              soft_w=1.0, goal_r_m=0.45, escape_m=0.30, pad_m=0.6):
+    """기억한 장애물 점 위에 격자를 깔고 A* 로 표적 근처까지 경로를 찾는다.
+
+    `detour_waypoint` 는 막는 덩어리 하나의 모서리만 본다. 벽을 돌자마자 기둥이나
+    턱에 막히면 그때 다시 판단하는데, 좁은 씬에서 이게 막다른 곳을 만들었다 —
+    벽과 턱 사이(22 cm, 몸통 24 cm)로 경유점을 찍고 거기서 20초를 서 있었다
+    (2026-09-28, 출발 +90°/−90°). 경로 전체를 한 번에 찾으면 그 틈이 애초에 안 뚫린다.
+
+    hard_m  : 장애물 점에서 이보다 가까운 칸은 못 간다. 몸통 반폭 12 cm + 걸음
+              오차 4 cm. 벽–기둥 틈(0.39 m)은 지나가고 벽–턱 틈(0.22 m)은 막힌다.
+              예전 경유점 방식은 12+10 cm 를 써서 벽–기둥 틈도 막혀, 기둥 바깥이나
+              턱 너머로 크게 돌았다 (도착 24.8 / 37.8초).
+    soft_m  : 이 안쪽은 가까울수록 비싸게 친다. 틈이 있으면 가운데로 지나간다.
+    goal_r_m: 표적에서 이 반경 안에 닿으면 끝. 어차피 0.55 m 에서 선다.
+    escape_m: 로봇이 이미 hard_m 안에 들어와 있으면 시작 칸부터 막힌다. 그때는 이
+              반경 안에서 **장애물에서 멀어지는 칸**만 열어 빠져나오게 한다.
+
+    **모르는 곳은 비었다고 본다.** 카메라는 1 m 안 밑변만 기억에 넣으므로
+    (ObstacleMemory.record_m) 멀리 있는 건 가까이 가서야 나타난다. 그래서 매번
+    다시 푼다.
+
+    반환: 월드 좌표 경로 (K,2) — 로봇 칸에서 표적 근처까지. 못 찾으면 None.
+    """
+    pts = np.asarray(pts, dtype=float).reshape(-1, 2)
+    P = np.asarray(robot_xy, dtype=float)
+    T = np.asarray(target_xy, dtype=float)
+    allp = np.vstack([P[None], T[None], pts]) if len(pts) else np.vstack([P, T])
+    x0, y0 = allp.min(axis=0) - pad_m
+    x1, y1 = allp.max(axis=0) + pad_m
+    nx = int(np.ceil((x1 - x0) / cell_m))
+    ny = int(np.ceil((y1 - y0) / cell_m))
+    dist = _clearance_grid(pts, x0, y0, nx, ny, cell_m, soft_m)
+
+    cx = x0 + (np.arange(nx) + 0.5) * cell_m
+    cy = y0 + (np.arange(ny) + 0.5) * cell_m
+    si = min(max(int((P[0] - x0) / cell_m), 0), nx - 1)
+    sj = min(max(int((P[1] - y0) / cell_m), 0), ny - 1)
+    free = dist >= hard_m
+    if not free[sj, si]:
+        near = np.hypot(cx[None, :] - P[0], cy[:, None] - P[1]) < escape_m
+        free |= near & (dist >= dist[sj, si] - 1e-4)
+    cost = 1.0 + soft_w * np.clip((soft_m - dist) / (soft_m - hard_m), 0.0, 1.0)
+    to_t = np.hypot(cx[None, :] - T[0], cy[:, None] - T[1])
+    goal = free & (to_t <= goal_r_m)
+    if not goal.any():
+        return None
+    hcell = np.maximum(to_t - goal_r_m, 0.0) / cell_m   # 칸 단위, 비용 >= 길이라 허용적
+
+    free_f, cost_f, goal_f, h_f = free.ravel(), cost.ravel(), goal.ravel(), hcell.ravel()
+    start = sj * nx + si
+    g = np.full(nx * ny, np.inf)
+    g[start] = 0.0
+    prev = np.full(nx * ny, -1, dtype=np.int64)
+    heap = [(h_f[start], start)]
+    steps = [(1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0),
+             (1, 1, 1.4142), (1, -1, 1.4142), (-1, 1, 1.4142), (-1, -1, 1.4142)]
+    end = -1
+    while heap:
+        f, u = heapq.heappop(heap)
+        if goal_f[u]:
+            end = u
+            break
+        gu = g[u]
+        if f - h_f[u] > gu + 1e-9:
+            continue
+        uj, ui = divmod(u, nx)
+        for di, dj, ln in steps:
+            vi, vj = ui + di, uj + dj
+            if vi < 0 or vi >= nx or vj < 0 or vj >= ny:
+                continue
+            v = vj * nx + vi
+            if not free_f[v]:
+                continue
+            # 대각선은 양옆 두 칸이 다 비어야 간다. 안 그러면 모서리를 비스듬히 뚫는다.
+            if di and dj and not (free_f[uj * nx + vi] and free_f[vj * nx + ui]):
+                continue
+            gv = gu + ln * 0.5 * (cost_f[u] + cost_f[v])
+            if gv < g[v]:
+                g[v] = gv
+                prev[v] = u
+                heapq.heappush(heap, (gv + h_f[v], v))
+    if end < 0:
+        return None
+    path = []
+    while end >= 0:
+        j, i = divmod(end, nx)
+        path.append((cx[i], cy[j]))
+        end = prev[end]
+    path.reverse()
+    path[0] = (P[0], P[1])
+    return np.array(path)
+
+
+def path_carrot(path, robot_xy, look_m=0.30):
+    """경로 위에서 로봇보다 look_m 앞의 점. 이걸 경유점으로 쫓는다 (pure pursuit).
+
+    경로 칸을 하나씩 밟게 하면 4 cm 마다 방위가 튀어 요 명령이 떨린다.
+    """
+    P = np.asarray(robot_xy, dtype=float)
+    k = int(np.argmin(np.hypot(*(path - P).T)))
+    acc = 0.0
+    for i in range(k + 1, len(path)):
+        acc += float(np.hypot(*(path[i] - path[i - 1])))
+        if acc >= look_m:
+            return path[i].copy()
+    return path[-1].copy()
+
+
+def plan_detour(pts, robot_xy, target_xy, direct_m=0.22, target_clear_m=0.45,
+                look_m=0.30, **kw):
+    """`detour_waypoint` 자리에 쓰는 A* 판. 반환: (쫓을 점, 경로, 막혔나).
+
+    표적까지 직선이 장애물에서 direct_m 이상 떨어져 있으면 (None, None, False) —
+    우회가 필요 없다. 막혔는데 경로가 없으면 (None, None, True) 이고, 그때 부르는
+    쪽은 예전 모서리 방식(`detour_waypoint`)으로 물러난다.
+    (예전 방식의 통로 반폭 12+10 cm 와 같은 값이라 직진 판정은 바뀌지 않는다.)
+    표적 반경 target_clear_m 안의 점은 사람 발로 보고 뺀다 (detour_waypoint 와 같은 이유).
+    """
+    pts = np.asarray(pts, dtype=float).reshape(-1, 2)
+    P = np.asarray(robot_xy, dtype=float)
+    T = np.asarray(target_xy, dtype=float)
+    pts = pts[np.hypot(*(pts - T).T) > target_clear_m] if len(pts) else pts
+    if len(pts) == 0:
+        return None, None, False
+    d = T - P
+    L = float(np.hypot(d[0], d[1]))
+    if L < 1e-6:
+        return None, None, False
+    s = np.clip((pts - P) @ d / (L * L), 0.0, 1.0)
+    gap = np.hypot(*(pts - (P + s[:, None] * d)).T)
+    if gap.min() >= direct_m:
+        return None, None, False
+    path = plan_path(pts, P, T, **kw)
+    if path is None:
+        return None, None, True
+    return path_carrot(path, P, look_m), path, True
