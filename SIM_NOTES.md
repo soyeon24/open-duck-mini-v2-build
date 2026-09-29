@@ -16,6 +16,7 @@ F 와 같은 코드(`control_step` → `follow_step`)로 따라가게 한 뒤, �
 ```bash
 .venv/Scripts/python.exe eval_follow_moving.py              # 대본 5 × 속도 3, 8프로세스 병렬 약 3분
 .venv/Scripts/python.exe eval_follow_moving.py --no_avoid
+.venv/Scripts/python.exe view_follow_moving.py              # 같은 대본을 MuJoCo 창으로 (N = 다음 대본)
 ```
 
 판정: 끝 거리(마지막 3초 평균) > 0.9 m 멀어짐 · 최소 거리 < 0.35 m 붙음 · 5초 넘게 연달아 놓침 ·
