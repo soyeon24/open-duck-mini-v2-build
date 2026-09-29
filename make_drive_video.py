@@ -71,10 +71,20 @@ SCRIPTS = {
         ("E",  4.0, (0, 0, -1)),
         ("—",  1.0, (0, 0, 0)),
     ],
+    # 회피가 쓰는 동작만 (물러나기, 제자리에서 옆으로 비키기). 전진을 빼야 제자리에서
+    # 시작한다 — 걸음이 돌고 있으면 좁은 범위 정책도 옆으로 간다 (09-22).
+    # --fixed_cam 과 같이 쓴다. 따라가는 카메라로는 제자리걸음과 이동이 구분이 안 된다.
+    "avoid": [
+        ("—",  1.0, (0, 0, 0)),
+        ("↓",  4.0, (-1, 0, 0)),
+        ("←",  4.0, (0, 1, 0)),
+        ("→",  4.0, (0, -1, 0)),
+        ("—",  1.0, (0, 0, 0)),
+    ],
 }
 
 KEYS = {"arrows": ["↑", "↓", "←", "→"], "straight": ["↑"],
-        "turn": ["Q", "E"]}
+        "turn": ["Q", "E"], "avoid": ["↓", "←", "→"]}
 
 
 def yaw_of(q):
@@ -90,6 +100,8 @@ def main():
                     help="2026-09-04 이후(dy ±0.111) 정책이면 붙일 것. 원본엔 붙이지 말 것")
     ap.add_argument("--forcerange", type=float, default=None,
                     help="토크 상한[N·m]. 정책이 학습된 값을 줄 것")
+    ap.add_argument("--lin_vel_y", type=float, default=None,
+                    help="게걸음 범위만 덮어쓴다. hp0dy2 는 --ref_range --lin_vel_y 0.2")
     ap.add_argument("--fps", type=float, default=12.0)
     ap.add_argument("--panel", type=int, nargs=2, default=[560, 400])
     ap.add_argument("--out", type=str,
@@ -98,18 +110,24 @@ def main():
                     help="방위 유지를 켜고 찍는다 (뷰어 기본값과 같은 상태). "
                          "안 주면 정책 맨몸이 찍힌다")
     ap.add_argument("--script", choices=sorted(SCRIPTS), default="arrows",
-                    help="arrows = 전진/후진/게걸음, turn = 제자리 선회(Q/E)")
+                    help="arrows = 전진/후진/게걸음, turn = 제자리 선회(Q/E), "
+                         "avoid = 후진/제자리 게걸음만")
+    ap.add_argument("--fixed_cam", action="store_true",
+                    help="카메라를 출발점에 고정한다 (기본은 오리를 따라감)")
     ap.add_argument("--en", action="store_true", help="라벨을 영어로")
     args = ap.parse_args()
     # 이 스크립트는 REPO 로 chdir 한 뒤라, 상대경로를 그대로 두면 결과물이
     # Open_Duck_Playground 안에 떨어진다. 부른 사람이 기대하는 곳은 여기다.
     if not os.path.isabs(args.out):
         args.out = os.path.join(ROOT, args.out)
+    # -o 도 같다. 위 사용 예(`-o from_ubai\...`)는 저장소 루트 기준이다.
+    if not os.path.exists(args.onnx_model_path):
+        args.onnx_model_path = os.path.join(ROOT, args.onnx_model_path)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
 
     PW, PH = args.panel
     m = MjInfer(args.model_path, REFERENCE, args.onnx_model_path,
-                False, args.ref_range)
+                False, args.ref_range, lin_vel_y=args.lin_vel_y)
     if args.forcerange is not None:
         m.model.actuator_forcerange[:] = np.array([-args.forcerange,
                                                    args.forcerange])
@@ -168,7 +186,7 @@ def main():
             # 카메라는 오리를 따라가되 **출발 방위에 고정**한다. 오리를 따라
             # 돌면 화면 안에서는 늘 똑바로 걷는 것처럼 보여서 쏠림이 안 보인다.
             duck = m.get_floating_base_qpos(m.data.qpos)[:3]
-            chase.lookat[:] = duck
+            chase.lookat[:] = p0 if args.fixed_cam else duck
             rend.update_scene(m.data, camera=chase)
             img = Image.fromarray(rend.render().copy())
             dr = ImageDraw.Draw(img)
