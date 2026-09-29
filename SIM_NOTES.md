@@ -6,6 +6,55 @@
 
 ---
 
+## 2026-09-29 — 걷는 사람 따라가기 채점 (`eval_follow_moving.py`)
+
+`eval_follow.py` 는 사람을 세워 둔다. 따라다닐 사람은 걷는다. 사람(mocap)을 대본대로 걸리고 뷰어의
+F 와 같은 코드(`control_step` → `follow_step`)로 따라가게 한 뒤, 정답 위치로 잰다. 빈 바닥
+(`scene_person.xml`), 기본 정책(hp0dy2 시드 0, 1.86), 뷰어 기본 설정(회피·머리 추종·몸통 사람 고정 켬).
+사람은 걷는 방향을 본다 — 옆에서 보면 두 발목이 겹치는 조건까지 들어간다. 사람이 멈춘 뒤 15초 더 굴린다.
+
+```bash
+.venv/Scripts/python.exe eval_follow_moving.py              # 대본 5 × 속도 3, 8프로세스 병렬 약 3분
+.venv/Scripts/python.exe eval_follow_moving.py --no_avoid
+```
+
+판정: 끝 거리(마지막 3초 평균) > 0.9 m 멀어짐 · 최소 거리 < 0.35 m 붙음 · 5초 넘게 연달아 놓침 ·
+빈 바닥에서 우회가 한 번이라도 잡히면 헛우회.
+
+| 대본 (사람 0.1 / 0.2 / 0.3 m/s) | 회피 켬 (뷰어 기본) | 회피 끔 |
+|---|---|---|
+| 멀어지기 1.5 m | 놓침·헛우회 / OK / OK | **OK / OK / OK** |
+| 앞을 가로지르기 | 헛우회 / 놓침 / 놓침·붙음 | OK / 놓침 / 놓침 |
+| 멀어지다 왼쪽으로 꺾기 | 놓침 / 놓침·붙음 / 놓침·붙음 | OK / 놓침·붙음 / 놓침·붙음 |
+| 다가와서 25 cm 앞에 서기 | 붙음 ×3 | 붙음 ×3 |
+| 둘레 반 바퀴 (반경 1 m) | 놓침 / 붙음 / 붙음 | OK / 놓침 / 놓침 |
+| **합계** | **2/15** | **6/15** |
+
+그림 `head_cam_out/follow_moving_avoid_on.png` / `_off.png` (위에서 본 궤적, 빨간 점이 놓친 구간).
+
+**실패 원인은 셋이다.**
+
+1. **헛우회 (회피 켤 때만).** 걸어간 사람의 발을 장애물로 기억한다. 기억은 "그 자리 바닥이 보이는데
+   비어 있을 때" 만 지운다 — 점이 사각(0.54 m) 밖이고, 그 방위의 첫 장애물보다 10 cm 이상 가까워야
+   한다. 그런데 그 방위의 첫 장애물이 바로 사람 발이고 오리는 0.55~0.7 m 뒤에서 따라가므로, **지울 수
+   있는 창(0.54 m ~ 사람 −0.1 m)이 비어 버린다.** 발자국은 보이는 동안 못 지우고, 다가가면 사각으로
+   들어가 영영 남는다. 빈 바닥인데 15판 중 13판에서 우회가 잡혔고, 가장 쉬운 "0.1 m/s 로 곧장
+   멀어지기" 가 x=1.5 에서 옆으로 틀어 사람을 놓쳤다.
+   **이것 때문에 기본 설정(회피 켬)이 회피를 끈 것보다 나쁘다.**
+2. **옆에서 멈춘 사람에게 붙는다.** 0.55 m 에서 서야 하는데 0.34~0.39 m 까지 들어가고, 0.4 m 안에서는
+   밴드가 화각 아래로 빠져 놓친 채 끝난다. 카메라 거리는 두 밴드 덩어리의 **가로폭**으로 내는데, 옆에서
+   보면 두 발목이 겹쳐 폭이 줄고 거리가 부풀려진다 (09-23 에 본 것, 1.92 m 를 2.18 m 로).
+3. **다가오기는 전부 실패.** 후진이 없어 25 cm 까지 붙는다 (회피 켜면 11~17 cm). 지금 도는 잡의 몫이다.
+
+**되는 것:** 회피를 끄면 곧장 멀어지는 사람은 0.3 m/s (오리의 2배)여도 사람이 멈춘 뒤 따라잡아
+0.57~0.59 m 에 선다. 놓침 0%.
+
+**다음 (이 순서):** ① 추종 중인 사람이 있는 방위의 바닥 점은 기억에 안 넣는다 (헛우회) — 목표는 회피 켬이
+끔(6/15) 이상. ② 거리를 밴드 폭 대신 밴드 밑변이 걸린 화면 높이(바닥 평면)로 낸다 — 바닥스캔과 같은
+방식이라 옆에서 봐도 안 부풀려진다. ③ 다가오기는 후진 정책이 나오면 제어기에 "0.55 m 안이면 물러나기".
+
+---
+
 ## 2026-09-29 — 회피 동작을 배우는 잡 4개 (11:34 제출, 995724~995727)
 
 **벽 회피 자체에는 이 잡이 필요 없다.** 이 씬의 벽은 A\* 로 돈다 (아래 09-28 저녁, 4/4 · 8/8.
@@ -145,17 +194,40 @@ CUDA 플러그인이 내는 소음이다 (CPU 로 정상 계산됨).
 본 설정은 두 시드 다 넘어야 한다. 넘으면 `eval_goto --avoid` 벽 4방위·무작위 8(60초)에서 hp0dy2
 (4/4, 8/8) 아래로 안 떨어지는지 보고, 그 다음에 제어기에 "막히면 물러나기" 를 넣는다.
 
-### 받아오기·채점 (그 다음 등교 때)
+### 받아오기·채점
 
-```powershell
-mkdir from_ubai\checkpoints_avoid, from_ubai\checkpoints_avoid_s2, from_ubai\checkpoints_dx15, from_ubai\checkpoints_mask
-scp -i <KEY_DIR>\ubai-<YOUR_ID>.pem "<YOUR_ID>@<GATE1_IP>:~/Open_Duck_Playground/checkpoints_avoid/*.onnx" from_ubai\checkpoints_avoid\
-# _avoid_s2 / _dx15 / _mask 도 같은 식으로. 로그는 ~/Open_Duck_Playground/logs/duck-{avoid,avoid-s2,dx15,mask}-*.out
-```
+중간 체크포인트까지 전부 `from_ubai/ckpt/<출력폴더>/` 로 받는다 (git 에서 뺀 곳, 잡당 15개 × 0.9 MB).
+고른 것만 `from_ubai/` 에 이름 붙여 커밋한다.
 ```bash
-.venv/Scripts/python.exe eval_walk.py -o from_ubai/checkpoints_avoid/*.onnx --forcerange 1.86                        # avoid · dx15 (원본 범위라 --ref_range 없이)
-.venv/Scripts/python.exe eval_walk.py -o from_ubai/checkpoints_mask/*.onnx --ref_range --lin_vel_y 0.2 --forcerange 1.86  # mask 만
+scp -i <KEY_DIR>/ubai-<YOUR_ID>.pem "<YOUR_ID>@<GATE1_IP>:~/Open_Duck_Playground/checkpoints_avoid/*.onnx" from_ubai/ckpt/checkpoints_avoid/
+.venv/Scripts/python.exe eval_walk.py -o from_ubai/ckpt/checkpoints_avoid/*.onnx --forcerange 1.86 --brief                          # avoid · dx15 (원본 범위라 --ref_range 없이)
+.venv/Scripts/python.exe eval_walk.py -o from_ubai/ckpt/checkpoints_mask/*.onnx --ref_range --lin_vel_y 0.2 --forcerange 1.86 --brief  # mask 만
 ```
+`--brief` 는 이번에 넣은 한 줄 요약이다 (명령마다 겨냥한 축 하나 + 넘어짐 수, 전체 표와 소수점까지 같음).
+
+### 150M 중간 점검 (12:16, 학습 절반) — 한 축 명령 0.4 는 너무 셌다
+
+`eval_walk --brief --forcerange 1.86`, 12초. 같은 시점 hp0dy2 는 서버에 남은 체크포인트로 쟀다.
+
+| 잡 (150M) | 전진 | 후진 | 제자리 게걸음 좌/우 | 제자리 선회 좌/우 | 전진+좌회전 |
+|---|---|---|---|---|---|
+| avoid (범위 + 한 축 0.4) | 2 cm | −1 | 1 / −1 | 18 / 3° | 96° |
+| avoid-s2 | 2 | 0 | 0 / −1 | 7 / −13 | −7 |
+| mask (한 축 0.4 만) | 14 | 0 | 0 / −1 | 52 / −32 | 637 |
+| **dx15 (범위만)** | **113** | 1 | **45** / −8 | **344** / −140 | 637 |
+| (hp0dy2, 같은 150M) | 128 | 1 | 2 / −1 | 237 / −245 | 610 |
+
+- **한 축 명령을 섞은 셋은 절반이 지나도록 못 걷는다.** hp0dy2 는 64M 에 36 cm, 107M 에 121 cm 로
+  걷기 시작했고 dx15 도 107M 에 108 cm 인데, 셋은 150M 에 2~14 cm 다. 서 있어도 보상을 거의 다 받는
+  명령(정지 16%, |vy| ≤ 0.1 인 제자리 게걸음 — `y_tol` 때문에 벌점 없음)이 늘어서 "서 있기" 에서
+  못 빠져나오는 것으로 보인다. 끝까지는 보되 300M 에 판정선을 넘기는 어렵다고 본다.
+- **dx15 는 hp0dy2 에 없던 제자리 좌 게걸음(45 cm)이 나왔다.** 후진은 아직 1 cm.
+- 그래서 dx15 의 시드 복제를 바로 던졌다 (아래).
+
+### 추가: 995755 `duck-dx15-s2` (12:21 제출)
+
+dx15 와 같은 설정에 `SEED=1`, 출력 `checkpoints_dx15_s2`. 두 시드가 같은 방향일 때만 믿는다.
+`sacct` SubmitLine 으로 `CMD_AXIS_ZERO` 가 없는 것까지 확인했다. 약 75분.
 
 ---
 
