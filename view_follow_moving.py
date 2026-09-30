@@ -8,6 +8,7 @@ r"""걷는 사람 따라가기를 MuJoCo 창으로 본다 (`eval_follow_moving.p
 
     .venv\Scripts\python.exe view_follow_moving.py                          # 다섯 대본, 0.2 m/s
     .venv\Scripts\python.exe view_follow_moving.py --scenario approach --speed 0.1
+    .venv\Scripts\python.exe view_follow_moving.py --scene sofa --speed 0.1      # 소파 뒤로 숨기 등
 
 창에서 N = 다음 대본으로. 창을 닫으면 끝난다.
 """
@@ -36,14 +37,22 @@ TRAIL_EVERY_S = 0.2   # 궤적 점 간격
 
 def main():
     ap = argparse.ArgumentParser(description="걷는 사람 따라가기 보기")
-    ap.add_argument("--scenario", nargs="+", choices=list(efm.SCENARIOS), default=list(efm.SCENARIOS))
+    ap.add_argument("--scene", choices=list(efm.SCENES), default="empty",
+                    help="대본 묶음 (창 하나에 씬 하나). --scenario 를 주면 그 씬을 쓴다")
+    ap.add_argument("--scenario", nargs="+", choices=list(efm.SCENARIOS), default=None)
     ap.add_argument("--speed", type=float, default=0.2, help="사람 걷는 속도 m/s (오리는 0.11~0.15)")
     ap.add_argument("-o", "--onnx_model_path", type=str, default=None)
     ap.add_argument("--forcerange", type=float, default=None)
     args = ap.parse_args()
+    if args.scenario is None:
+        args.scenario = [n for n in efm.SCENARIOS if efm.scene_of(n) == args.scene]
+    scenes = {efm.scene_of(n) for n in args.scenario}
+    if len(scenes) != 1:
+        ap.error(f"창 하나에 씬 하나만 된다. 고른 대본의 씬: {sorted(scenes)}")
+    scene = scenes.pop()
 
     onnx, rr, lvy, fr = resolve_policy(args.onnx_model_path, True, None, args.forcerange)
-    m = MjInfer(efm.SCENE, efm.REFERENCE, onnx, False, rr, lvy)
+    m = MjInfer(efm.SCENES[scene], efm.REFERENCE, onnx, False, rr, lvy)
     if fr is not None:
         m.model.actuator_forcerange[:] = np.array([-fr, fr])
     # 오프스크린 렌더러를 **창보다 먼저** 만든다. 창이 뜬 뒤에 만들면 세그폴트로 죽는다
@@ -108,7 +117,7 @@ def main():
                             scn.ngeom += 1
                 v.sync()
 
-                if walker.done_t is not None and t >= walker.done_t + HOLD_S:
+                if walker.done_t is not None and t >= walker.done_t + (HOLD_S if scene == "empty" else efm.WALL_HOLD_S):
                     break
                 wait = ctrl_dt - (time.time() - t0)
                 if wait > 0:
