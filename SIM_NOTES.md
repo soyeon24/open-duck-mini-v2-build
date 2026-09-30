@@ -76,6 +76,39 @@ hw8 이 09-06 값과 소수점까지 같다). 정책마다 학습 토크·머리
   `MemoryError: bad allocation` 으로 죽는다 (평가 환경 1개로 줄여도). **다음 등교 때 서버에서 스모크로
   확인한다** — 08-31 300M 에서 이어받아 2M 스텝, 첫 평가 보상이 처음부터(5~10)가 아니라 걷는 정책 수준
   (200 언저리)으로 나오면 된다.
+  → 09-30: 스크립트로 만들어 뒀다 (아래). 이어받는 체크포인트는 hp0dy2 로 바꿨다.
+
+#### 스모크 잡 준비 (09-30, `ubai/33_submit_restore_smoke.sh`) — 아직 안 던졌다
+
+- **hp0dy2 300M 에서 hp0dy2 와 똑같은 설정으로** 이어받는다 (08-31 이 아니라). 08-31 은 지금 joystick 과
+  보상 설정이 달라서 비교할 기준값이 없다. 같은 설정이면 첫 평가(STEP 0)가 hp0dy2 후반 평가(206~255)와
+  같아야 하고, 처음부터면 15 다 (994830 로그. 위에 쓴 5~10 은 틀렸다). 코드 경로는 어느 체크포인트든 같다.
+- `STEPS=2000000` → 평가 15회 × 163840 = 2.29M 스텝. `--time=01:00:00` (짧아야 다른 잡 사이에 끼어 든다).
+- 스크립트가 하는 일: 서버 `runner.py` 가 09-12 판(해시)일 때만 백업(`.bak_<날짜>`)하고 교체한다. 로그인 노드
+  CPU 로 체크포인트를 새 `load_params` 로 되읽어 count 3.005e8 · 관측 101/212 인지 확인한다. 출력 폴더가
+  비었는지 보고 나서 제출한다. `CHECK=<잡>` 은 끝난 로그를 판정한다 ([restore] 줄 · 웜스타트 경로 · 평가 15회 ·
+  STEP 0 > 100 · 마지막 > 100 · exit 0).
+- 가짜 서버로 끝까지 돌렸다 (09-12 runner.py + 실제 hp0dy2 체크포인트 + `.venv-train-cpu` + 가짜 sbatch):
+  교체·백업·되읽기·sbatch 인자 OK. 서버 runner.py 를 누가 고쳐 놨으면 멈추는 것도 확인했다. `CHECK` 는
+  합성 통과 로그 → PASS, 910947 실제 오류 로그 → FAIL + `Expected list, got RestoreArgs`, 처음부터 모양 → FAIL.
+  (예전 세션 scratchpad 의 서버판 venv `srvenv` 는 numpy `__init__.py` 가 없어져 깨져 있다.)
+- ⚠️ **교체한 뒤에는 `31_train_head.sbatch` 의 웜스타트가 진짜로 먹는다.** `WARM` 기본값이 08-31 300M 이라,
+  `WARM=none` 없이 던진 잡은 이제 죽지 않고 08-31 에서 이어받는다. 출력 폴더에 진행분이 있으면 거기서
+  이어받는다. 처음부터 학습할 잡은 지금처럼 `WARM=none` 에 빈 `OUT` 을 줄 것. 이어받기를 안 쓰는 잡은
+  영향이 없다.
+
+윈도우 (저장소 루트에서):
+```powershell
+scp -i <KEY_DIR>\ubai-<YOUR_ID>.pem Open_Duck_Playground\playground\common\runner.py <YOUR_ID>@<GATE1_IP>:~/runner_restore.py
+scp -i <KEY_DIR>\ubai-<YOUR_ID>.pem ubai\33_submit_restore_smoke.sh <YOUR_ID>@<GATE1_IP>:~/ubai/
+```
+서버:
+```bash
+sed -i 's/\r$//' ~/ubai/33_submit_restore_smoke.sh
+DRY=1 bash ~/ubai/33_submit_restore_smoke.sh     # 교체 + 되읽기 확인까지
+bash ~/ubai/33_submit_restore_smoke.sh           # 제출
+CHECK=<잡번호> bash ~/ubai/33_submit_restore_smoke.sh   # 끝난 뒤
+```
 
 ---
 
