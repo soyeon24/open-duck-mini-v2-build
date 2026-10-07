@@ -56,10 +56,31 @@ Then `python flybrain/build_brain.py` once.
 
 Readout: `dx = KX·(DNp09 L + R) − KB·MDN`, `dyaw = KY·((DNp09 L − R) + (DNa02 L − R))`.
 
-## First closed-loop run (20 s, person at 2.0, 0.6 m)
+## Left and right inhibit each other
 
-The band stayed in view 100 % of the time with a median bearing error of 2.8°, so the steering
-works. The forward drive does not: the duck covered 0.24 m. With the target near the centre the
-input splits about 50 / 50, each DNp09 sits below threshold most of the time, and a 100 ms window
-over a single neuron reads in 10 Hz steps. The next thing to tune is the input gain or the readout
-window, not the wiring. The brain runs about 7× slower than real time (about 22× with rendering).
+A 1 s grid of left / right LC9 rates (Hz) against DNp09 left / right (Hz):
+
+| LC9 L / R | 150 / 0 | 100 / 100 | 50 / 50 | 150 / 150 |
+|---|---|---|---|---|
+| DNp09 L / R | 74 / 0 | 22 / 4 | 5 / 1 | 46 / 9 |
+
+Equal input on both sides silences the forward neurons. The first wiring split the input 50 / 50
+for a target straight ahead (8° split width), so it sat in exactly that dead zone: 0.24 m in 20 s.
+The current wiring makes one side win (3° split width, 200 Hz), and the duck pursues the way a fly
+does, with small left and right corrections. Rates are now smoothed with a 150 ms exponential
+filter instead of a 100 ms box over a single neuron, which read in 10 Hz steps.
+
+## Closed loop (30 s, person at 2.0, 0.6 m, start facing +x)
+
+| Wiring | Distance 2.09 m → | Time to 0.70 m | Band in view |
+|---|---|---|---|
+| 8° split, 100 Hz (first) | 1.85 m after 20 s | — | 100 % |
+| 3° split, 150 Hz | 0.70 m | 14 s | 100 % |
+| **3° split, 200 Hz (default)** | **0.68 m** | **10 s** | 100 % |
+
+There is no stop rule in the readout. Once the person is close, the input drops (`--near`/`--far`), the two
+sides are again roughly equal, they suppress each other, and the duck stands about 0.7 m in front.
+
+The brain runs about 7× slower than real time (about 40× with the head-camera render), so
+`fly_pilot.py` simulates headless, saves the trajectory, and replays it in the MuJoCo viewer in real
+time with LC9 input and DN rates overlaid.

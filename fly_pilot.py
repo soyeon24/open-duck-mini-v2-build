@@ -7,18 +7,26 @@ r"""초파리 뇌가 오리를 조종한다.
 LC9 를 고른 이유: 전진 하행 뉴런 P9(DNp09)의 주 입력이고, P9 는 수컷이 암컷을 쫓을 때 필요하다
 (Bidaye et al. 2020). 커넥톰에서도 왼쪽 LC9 → 왼쪽 DNp09 만 켜진다 (flybrain/probe.py 표).
 
-배선 (flybrain/probe.py 로 정했다. 손으로 정한 건 게인과 아래 두 줄뿐이다):
+배선 (flybrain/probe.py 로 정했다):
     전진  = KX · (DNp09_L + DNp09_R) − KB · (MDN 평균)
     회전  = KY · ((DNp09_L − DNp09_R) + (DNa02_L − DNa02_R))   (왼쪽 +, 요 명령과 같은 부호)
     DNa01 은 안 쓴다. 이 모델에서는 자극 반대쪽에서 켜져 조향과 부호가 반대다.
+
+좌우 LC9 는 서로를 누른다 (2026-10-07 격자): 150/0 Hz 면 DNp09 74/0 인데 100/100 이면 22/4,
+50/50 이면 5/1. 그래서 정면 표적에 자극을 반반 나누면 전진이 꺼진다 (첫 판: 20초에 0.24 m).
+좌우 나눔을 날카롭게 해서(SIDE_DEG 3°) 늘 한쪽이 이기게 한다 — 파리처럼 좌우로 꺾으며 쫓는다.
+가까워지면 자극이 줄어 좌우가 다시 서로를 누르고, 전진이 꺼져 사람 앞에서 선다 (0.68~0.70 m).
+LC9 150 Hz: 2.09 → 0.70 m (0.70 까지 14초) · 200 Hz: → 0.68 m (10초). 200 을 기본값으로 둔다.
+
 뇌 밖에 둔 것: 밴드가 안 보이면 자극 0 (뇌가 조용해져 선다), 가까우면 자극을 줄인다
 (LC9 같은 작은 물체 검출기는 물체가 시야를 덮을 만큼 커지면 덜 반응한다 — 거칠게 흉내).
 
-뇌는 실시간보다 ~7배 느리다. 뷰어는 그만큼 느리게 돈다.
+뇌는 실시간보다 ~7배(렌더 포함 ~20배) 느리다. 그래서 먼저 헤드리스로 굴려 궤적을 저장하고,
+뷰어는 그걸 실시간으로 다시 튼다 (화면 위에 LC9 입력과 DN 발화율이 같이 뜬다).
 
-    .venv\Scripts\python.exe fly_pilot.py                    # 뷰어 (느림)
-    .venv\Scripts\python.exe fly_pilot.py --seconds 20 --no_view   # 채점만
-    .venv\Scripts\python.exe fly_pilot.py --person 2.0 -0.8 --start_yaw 40
+    .venv\Scripts\python.exe fly_pilot.py                       # 굴리고 → 뷰어로 재생
+    .venv\Scripts\python.exe fly_pilot.py --no_view --tag a     # 굴리기만 (채점)
+    .venv\Scripts\python.exe fly_pilot.py --replay head_cam_out\fly_pilot_a.npz
 """
 import argparse
 import os
@@ -29,6 +37,7 @@ import numpy as np
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = os.path.dirname(os.path.abspath(__file__))
+CWD0 = os.getcwd()          # --replay 상대경로는 실행한 자리 기준 (아래에서 폴더를 옮긴다)
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "flybrain"))
 os.chdir(os.path.join(ROOT, "Open_Duck_Playground"))
@@ -37,36 +46,24 @@ sys.path.insert(0, os.getcwd())
 import mujoco  # noqa: E402
 import mujoco.viewer  # noqa: E402
 
-import band_tracker  # noqa: E402
-from lif import Brain  # noqa: E402
-from playground.open_duck_mini_v2.mujoco_infer import MjInfer, resolve_policy  # noqa: E402
-
 REF = "playground/open_duck_mini_v2/data/polynomial_coefficients.pkl"
 SCENE = "playground/open_duck_mini_v2/xmls/scene_person.xml"
-
-LC9_HZ = 100.0        # 표적이 한쪽 눈에만 있을 때 그쪽 LC9 자극 세기
-SIDE_DEG = 8.0        # 좌/우 나눔의 폭. 방위 ±8° 면 73% / 27%
-NEAR_M, FAR_M = 0.45, 0.9   # 이보다 가까우면 자극 0, 멀면 다 줌
-WIN_MS = 100.0        # 발화율 창
-KX, KY, KB = 0.0035, 0.012, 0.004
+OUT = os.path.join(ROOT, "head_cam_out")
+DNS = ("DNp09", "DNa02", "MDN")
 
 
 class FlyPilot:
-    def __init__(self, m, brain):
-        self.m, self.B = m, brain
+    def __init__(self, m, brain, a):
+        self.m, self.B, self.a = m, brain, a
         self.lc9 = {s: brain.find("LC9", s) for s in ("left", "right")}
-        self.dn = {(d, s): brain.find(d, s) for d in ("DNp09", "DNa02", "DNa01", "MDN")
-                   for s in ("left", "right")}
-        self.hist = []
-        self.n_win = max(1, int(round(WIN_MS / (m.sim_dt * m.decimation * 1000))))
+        self.dn = {(d, s): brain.find(d, s) for d in DNS for s in ("left", "right")}
+        self.ctrl_ms = m.sim_dt * m.decimation * 1000
+        self.alpha = 1.0 - np.exp(-self.ctrl_ms / a.tau_ms)
+        self.R = {k: 0.0 for k in self.dn}      # 지수 평활한 발화율 (Hz)
         self.last = {}
 
-    def rate(self, key):
-        counts = np.sum([h[key] for h in self.hist], axis=0)
-        return float(np.mean(counts)) * 1000.0 / (len(self.hist) * self.m.sim_dt * self.m.decimation * 1000)
-
-    def step(self):
-        m = self.m
+    def step(self, band_tracker):
+        m, a = self.m, self.a
         img = m.render_head()
         res = band_tracker.track(img, float(m.model.cam_fovy[m.follow_cam_id]))
         if res is None:
@@ -74,36 +71,105 @@ class FlyPilot:
             bearing = dist = float("nan")
         else:
             bearing, dist = res["bearing_deg"], res["distance_m"]
-            near = np.clip((dist - NEAR_M) / (FAR_M - NEAR_M), 0.0, 1.0)
-            pl = 1.0 / (1.0 + np.exp(-bearing / (SIDE_DEG / np.log(3))))
-            l, r = LC9_HZ * near * pl, LC9_HZ * near * (1 - pl)
+            near = np.clip((dist - a.near) / (a.far - a.near), 0.0, 1.0)
+            pl = 1.0 / (1.0 + np.exp(-bearing / (a.side_deg / np.log(3))))
+            l, r = a.lc9_hz * near * pl, a.lc9_hz * near * (1 - pl)
         self.B.set_stim([(self.lc9["left"], l), (self.lc9["right"], r)])
-        ctrl_ms = m.sim_dt * m.decimation * 1000
-        c = self.B.run(ctrl_ms)
-        self.hist.append({k: c[v] for k, v in self.dn.items()})
-        self.hist = self.hist[-self.n_win:]
-        R = {k: self.rate(k) for k in self.dn}
-        fwd = KX * (R[("DNp09", "left")] + R[("DNp09", "right")]) \
-            - KB * 0.5 * (R[("MDN", "left")] + R[("MDN", "right")])
-        yaw = KY * ((R[("DNp09", "left")] - R[("DNp09", "right")])
-                    + (R[("DNa02", "left")] - R[("DNa02", "right")]))
+        c = self.B.run(self.ctrl_ms)
+        for k, ids in self.dn.items():
+            hz = float(np.mean(c[ids])) * 1000.0 / self.ctrl_ms
+            self.R[k] += self.alpha * (hz - self.R[k])
+        R = self.R
+        fwd = a.kx * (R[("DNp09", "left")] + R[("DNp09", "right")]) \
+            - a.kb * 0.5 * (R[("MDN", "left")] + R[("MDN", "right")])
+        yaw = a.ky * ((R[("DNp09", "left")] - R[("DNp09", "right")])
+                      + (R[("DNa02", "left")] - R[("DNa02", "right")]))
         m.commands[0] = float(np.clip(fwd, m.COMMANDS_RANGE_X[0], m.COMMANDS_RANGE_X[1]))
         m.commands[1] = 0.0
         m.commands[2] = float(np.clip(yaw, -1.0, 1.0))
-        self.last = dict(bearing=bearing, dist=dist, lc9=(l, r), R=R)
+        self.last = dict(bearing=bearing, dist=dist, lc9=(l, r), R=dict(R))
         m.control_step()
 
 
-def build(args):
-    onnx, rr, dy, fr = resolve_policy(args.onnx_model_path)
+def run(a):
+    import band_tracker
+    from lif import Brain
+    from playground.open_duck_mini_v2.mujoco_infer import MjInfer, resolve_policy
+
+    onnx, rr, dy, fr = resolve_policy(a.onnx_model_path)
     m = MjInfer(SCENE, REF, onnx, False, rr, dy)
     m.model.actuator_forcerange[:] = np.array([-fr, fr])
     m.full_reset()
     m.direct_head = False
     m.heading_hold = False
-    m.place([0.0, 0.0], args.start_yaw, args.person)
-    m.render_head()          # 렌더러를 뷰어보다 먼저 (mujoco_infer.run 주석 참고)
-    return m
+    m.place([0.0, 0.0], a.start_yaw, a.person)
+    m.render_head()
+    pilot = FlyPilot(m, Brain(seed=a.seed), a)
+    ctrl_dt = m.sim_dt * m.decimation
+    p = np.array(a.person)
+    log, qpos = [], []
+    t0 = time.time()
+    for k in range(int(a.seconds / ctrl_dt)):
+        pilot.step(band_tracker)
+        for _ in range(m.decimation):
+            mujoco.mj_step(m.model, m.data)
+        base = m.get_floating_base_qpos(m.data.qpos)
+        L = pilot.last
+        log.append((k * ctrl_dt, float(np.linalg.norm(base[:2] - p)), L["bearing"],
+                    m.commands[0], m.commands[2], *L["lc9"],
+                    *(L["R"][(d, s)] for d in DNS for s in ("left", "right"))))
+        qpos.append(m.data.qpos.copy())
+        if k % 50 == 0:
+            g = log[-1]
+            print(f"{g[0]:5.1f}s 거리 {g[1]:.2f} m  방위 {g[2]:+6.1f}°  LC9 {g[5]:3.0f}/{g[6]:3.0f}"
+                  f"  DNp09 {g[7]:3.0f}/{g[8]:3.0f}  DNa02 {g[9]:3.0f}/{g[10]:3.0f}"
+                  f"  → dx {g[3]:+.3f} yaw {g[4]:+.2f}", flush=True)
+    L = np.array(log)
+    near = np.nonzero(L[:, 1] < a.near + 0.15)[0]
+    print(f"\n== [{a.tag}] {L[-1, 0]:.0f}초 (벽시계 {time.time() - t0:.0f}s): 거리 {L[0, 1]:.2f} → "
+          f"{L[-1, 1]:.2f} m (최소 {L[:, 1].min():.2f})"
+          f" · {a.near + 0.15:.2f} m 안 도착 {'%.1f초' % L[near[0], 0] if len(near) else '못 함'}"
+          f" · 밴드 보인 비율 {np.isfinite(L[:, 2]).mean():.0%}"
+          f" · 평균 dx {L[:, 3].mean():.3f}")
+    path = os.path.join(OUT, f"fly_pilot_{a.tag}.npz")
+    np.savez(path, log=L, qpos=np.array(qpos), person=p, ctrl_dt=ctrl_dt, args=str(vars(a)))
+    print(f"궤적 {path}")
+    return path
+
+
+def replay(path, loop=True):
+    z = np.load(path)
+    L, Q, p, dt = z["log"], z["qpos"], z["person"], float(z["ctrl_dt"])
+    from playground.open_duck_mini_v2 import base
+    from etils import epath
+    model = mujoco.MjModel.from_xml_string(epath.Path(SCENE).read_text(), assets=base.get_assets())
+    data = mujoco.MjData(model)
+    data.mocap_pos[0] = [p[0], p[1], 0.0]
+    print(f">>> 재생 {os.path.basename(path)} — 실시간. 창을 닫으면 끝")
+    with mujoco.viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=False) as v:
+        v.cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
+        v.cam.trackbodyid = model.body("base").id if model.nbody > 1 else 0
+        v.cam.distance, v.cam.elevation, v.cam.azimuth = 1.6, -25, 200
+        while v.is_running():
+            for k in range(len(Q)):
+                if not v.is_running():
+                    break
+                t0 = time.time()
+                data.qpos[:] = Q[k]
+                mujoco.mj_forward(model, data)
+                g = L[k]
+                b = "안 보임" if not np.isfinite(g[2]) else f"{g[2]:+.0f}°"
+                v.set_texts([(mujoco.mjtFontScale.mjFONTSCALE_150, mujoco.mjtGridPos.mjGRID_TOPLEFT,
+                              "time\nperson\nbearing\nLC9 in  L / R\nDNp09    L / R\nDNa02    L / R\n"
+                              "command dx / yaw",
+                              f"{g[0]:.1f} s\n{g[1]:.2f} m\n{b}\n{g[5]:.0f} / {g[6]:.0f} Hz\n"
+                              f"{g[7]:.0f} / {g[8]:.0f} Hz\n{g[9]:.0f} / {g[10]:.0f} Hz\n"
+                              f"{g[3]:+.3f} / {g[4]:+.2f}")])
+                v.sync()
+                time.sleep(max(0.0, dt - (time.time() - t0)))
+            if not loop:
+                break
+            time.sleep(1.0)
 
 
 def main():
@@ -112,53 +178,26 @@ def main():
     ap.add_argument("--person", type=float, nargs=2, default=[2.0, 0.6])
     ap.add_argument("--start_yaw", type=float, default=0.0)
     ap.add_argument("--seconds", type=float, default=30.0)
-    ap.add_argument("--no_view", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
-    args = ap.parse_args()
-
-    m = build(args)
-    pilot = FlyPilot(m, Brain(seed=args.seed))
-    ctrl_dt = m.sim_dt * m.decimation
-    n = int(args.seconds / ctrl_dt)
-    p = np.array(args.person)
-    log = []
-
-    def tick(k):
-        pilot.step()
-        for _ in range(m.decimation):
-            mujoco.mj_step(m.model, m.data)
-        base = m.get_floating_base_qpos(m.data.qpos)
-        d_true = float(np.linalg.norm(base[:2] - p))
-        log.append((k * ctrl_dt, d_true, pilot.last["bearing"], m.commands[0], m.commands[2],
-                    *pilot.last["lc9"],
-                    *(pilot.last["R"][(dn, s)] for dn in ("DNp09", "DNa02", "MDN")
-                      for s in ("left", "right"))))
-        if k % 25 == 0:
-            L = log[-1]
-            print(f"{L[0]:5.1f}s 거리 {L[1]:.2f} m  방위 {L[2]:+6.1f}°  LC9 {L[5]:3.0f}/{L[6]:3.0f} Hz"
-                  f"  DNp09 {L[7]:3.0f}/{L[8]:3.0f}  DNa02 {L[9]:3.0f}/{L[10]:3.0f}  MDN {L[11]:2.0f}/{L[12]:2.0f}"
-                  f"  → dx {L[3]:+.3f} yaw {L[4]:+.2f}", flush=True)
-
-    t0 = time.time()
-    if args.no_view:
-        for k in range(n):
-            tick(k)
-    else:
-        with mujoco.viewer.launch_passive(m.model, m.data, show_left_ui=False,
-                                          show_right_ui=False) as v:
-            for k in range(n):
-                if not v.is_running():
-                    break
-                tick(k)
-                v.sync()
-    L = np.array(log)
-    seen = np.isfinite(L[:, 2])
-    print(f"\n== {L[-1, 0]:.0f}초 (벽시계 {time.time() - t0:.0f}s): 거리 {L[0, 1]:.2f} → {L[-1, 1]:.2f} m"
-          f" (최소 {L[:, 1].min():.2f}) · 밴드 보인 비율 {seen.mean():.0%}"
-          f" · |방위| 중앙값 {np.nanmedian(np.abs(L[:, 2])):.1f}°")
-    out = os.path.join(ROOT, "head_cam_out", "fly_pilot_log.npy")
-    np.save(out, L)
-    print(f"로그 {out}")
+    ap.add_argument("--tag", default="run")
+    ap.add_argument("--no_view", action="store_true", help="굴리기만 하고 재생은 안 한다")
+    ap.add_argument("--replay", default=None, help="저장한 궤적(npz)을 뷰어로 재생만")
+    g = ap.add_argument_group("배선")
+    g.add_argument("--lc9_hz", type=float, default=200.0, help="한쪽 눈에만 보일 때 그쪽 LC9 자극")
+    g.add_argument("--side_deg", type=float, default=3.0, help="방위 ±이 값에서 75%%/25%% 로 나뉜다")
+    g.add_argument("--near", type=float, default=0.45, help="이보다 가까우면 자극 0 (m)")
+    g.add_argument("--far", type=float, default=0.9, help="이보다 멀면 자극을 다 준다 (m)")
+    g.add_argument("--tau_ms", type=float, default=150.0, help="발화율 지수 평활 시정수")
+    g.add_argument("--kx", type=float, default=0.0035, help="전진 게인 (m/s per Hz)")
+    g.add_argument("--ky", type=float, default=0.006, help="회전 게인 (rad/s per Hz)")
+    g.add_argument("--kb", type=float, default=0.004, help="MDN 후진 게인")
+    a = ap.parse_args()
+    if a.replay:
+        replay(os.path.join(CWD0, a.replay))
+        return
+    path = run(a)
+    if not a.no_view:
+        replay(path)
 
 
 if __name__ == "__main__":
