@@ -31,7 +31,7 @@ class Brain:
         p = dict(PARAMS, **overrides)
         self.p, self.dt = p, dt
         z = arrays if arrays is not None else np.load(path, allow_pickle=False)
-        self.indptr, self.indices = z["indptr"], z["indices"].astype(np.int32)
+        self.indptr, self.indices = z["indptr"], z["indices"].astype(np.int32, copy=False)
         self.w = (z["data"] * p["w_syn"]).astype(np.float32)
         self.cell_type, self.side = z["cell_type"], z["side"]
         self.hemibrain_type = z["hemibrain_type"] if "hemibrain_type" in z else self.cell_type

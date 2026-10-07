@@ -84,3 +84,33 @@ sides are again roughly equal, they suppress each other, and the duck stands abo
 The brain runs about 7× slower than real time (about 40× with the head-camera render), so
 `fly_pilot.py` simulates headless, saves the trajectory, and replays it in the MuJoCo viewer in real
 time with LC9 input and DN rates overlaid.
+
+## A walking person: fly brain vs. the existing follower
+
+Same five walking-person scripts, same verdicts (`eval_follow_moving.summarize`), same walking
+policy (hp0dy2), empty floor. The existing follower is `MjInfer.follow_step` as on `main`
+(`eval_follow_moving.py --speeds 0.1 0.2`); the fly brain is `eval_fly_moving.py`. End distance is
+the mean over the last 3 s; "lost" is the longest run of frames without the band.
+
+| Script | Person m/s | Existing: lost / end m | Existing | Fly: lost / end m | Fly |
+|---|---|---|---|---|---|
+| Walk away | 0.1 | 0.0 s / 0.65 | OK | 0.0 s / 0.64 | **OK** |
+| Walk away | 0.2 | 0.0 s / 0.65 | OK | 0.0 s / 0.67 | **OK** |
+| Cross in front | 0.1 | 0.0 s / 0.65 | OK | 14.0 s / 0.48 | lost |
+| Cross in front | 0.2 | 0.0 s / 0.66 | OK | 16.7 s / 1.05 | lost, too far |
+| Walk away, turn left | 0.1 | 0.0 s / 0.66 | OK | 13.6 s / 0.46 | lost |
+| Walk away, turn left | 0.2 | 0.0 s / 0.64 | OK | 10.3 s / 0.39 | lost |
+| Walk up to 25 cm | 0.1 | 9.4 s / 0.66 | OK | 17.7 s / 0.25 | lost, too close |
+| Walk up to 25 cm | 0.2 | 6.9 s / 0.65 | OK | 16.3 s / 0.25 | lost, too close |
+| Half circle, r 1 m | 0.1 | 0.0 s / 0.65 | OK | 41.1 s / 1.68 | lost, too far |
+| Half circle, r 1 m | 0.2 | 0.0 s / 0.64 | OK | 27.5 s / 1.36 | lost, too far |
+| **Total** | | | **10 / 10** | | **2 / 10** |
+
+The fly brain keeps up exactly as long as the person stays inside the camera's ±31° field of view:
+walking straight away it matches the existing follower to the centimetre. Every failure starts with
+the band leaving the image sideways, and the brain then has no input and stands still. The
+existing follower does three things the fly wiring does not: it turns the head to keep the person
+in view, it remembers where the person was and turns or walks there, and it backs off when someone
+walks up. Those are what to give the fly next. The cheapest one is the head: the fly's own neck
+motor neurons could drive the head yaw.
+

@@ -55,7 +55,7 @@ def run_one(job):
     hold = efm.hold_of(name)
     walk_len = float(np.sum(np.hypot(*np.diff(walker.pts, axis=0).T))) if len(walker.pts) > 1 else 2.0
     t_max = walk_len / speed + 2.0 + hold
-    log, plog, qpos, ptraj = [], [], [], []
+    plog, qpos, ptraj = [], [], []
     k, t0 = 0, time.time()
     while True:
         t = k * ctrl_dt
@@ -67,15 +67,9 @@ def run_one(job):
             mujoco.mj_step(m.model, m.data)
         base = m.get_floating_base_qpos(m.data.qpos)
         rel = walker.pos - base[:2]
-        bear = (np.degrees(np.arctan2(rel[1], rel[0])) - m.body_yaw_deg() + 180.0) % 360.0 - 180.0
         L = pilot.last
-        seen = np.isfinite(L["bearing"])
         d = float(np.hypot(rel[0], rel[1]))
-        # eval_follow_moving.run_one 과 같은 열 (우회·닿음은 0)
-        log.append((t, base[0], base[1], walker.pos[0], walker.pos[1], d, bear, seen, False,
-                    float(m.get_gravity(m.data)[-1]), walker.done_t is None,
-                    m.commands[0], m.commands[1], m.commands[2], False))
-        # fly_pilot 재생용 열
+        # fly_pilot 재생용 열. 채점 열은 efm_log 가 여기서 다시 만든다
         plog.append((t, d, L["bearing"], m.commands[0], m.commands[2], *L["lc9"],
                      *(L["R"][(dn, s)] for dn in fly_pilot.DNS for s in ("left", "right"))))
         qpos.append(m.data.qpos.copy())
@@ -85,11 +79,39 @@ def run_one(job):
             break
         if t > t_max + 30.0:
             break
-    log = np.array(log, dtype=float)
-    path = os.path.join(OUT, f"fly_moving_{name}_{speed:.1f}.npz")
+    path = npz_path(name, speed)
     np.savez(path, log=np.array(plog), qpos=np.array(qpos), person=np.array(ptraj[0][:2]),
              person_traj=np.array(ptraj), ctrl_dt=ctrl_dt, args=str(vars(a)))
-    return name, speed, log, walker.done_t, time.time() - t0
+    return name, speed, time.time() - t0
+
+
+def npz_path(name, speed):
+    return os.path.join(OUT, f"fly_moving_{name}_{speed:.1f}.npz")
+
+
+def efm_log(path):
+    """저장한 궤적에서 eval_follow_moving.summarize 가 받는 열을 다시 만든다.
+
+    채점을 이 한 경로로만 한다 — 굴리는 쪽과 채점이 같은 파일을 본다. 그래서 중간에 죽어도
+    끝난 판은 다시 굴리지 않고 채점된다 (10판 동시에 돌리다 메모리가 모자라 죽은 적 있다).
+    """
+    z = np.load(path)
+    P, Q, T = z["log"], z["qpos"], z["person_traj"]
+    t = P[:, 0]
+    q = Q[:, 3:7]
+    yaw = np.degrees(np.arctan2(2 * (q[:, 0] * q[:, 3] + q[:, 1] * q[:, 2]),
+                                1 - 2 * (q[:, 2] ** 2 + q[:, 3] ** 2)))
+    rel = T[:, :2] - Q[:, :2]
+    bear = (np.degrees(np.arctan2(rel[:, 1], rel[:, 0])) - yaw + 180.0) % 360.0 - 180.0
+    up = 1 - 2 * (q[:, 1] ** 2 + q[:, 2] ** 2)          # 몸통 z 축의 월드 z 성분
+    moved = np.any(np.abs(np.diff(T[:, :2], axis=0)) > 1e-9, axis=1)
+    last = int(np.nonzero(moved)[0][-1]) + 1 if moved.any() else 0
+    done_t = float(t[last])
+    moving = t < done_t
+    log = np.column_stack([t, Q[:, 0], Q[:, 1], T[:, 0], T[:, 1], P[:, 1], bear,
+                           np.isfinite(P[:, 2]), np.zeros_like(t), up, moving,
+                           P[:, 3], np.zeros_like(t), P[:, 4], np.zeros_like(t)])
+    return log, done_t
 
 
 def main():
@@ -99,24 +121,29 @@ def main():
                     default=[n for n in efm.SCENARIOS if efm.scene_of(n) == "empty"])
     ap.add_argument("--speeds", type=float, nargs="+", default=[0.1, 0.2])
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--workers", type=int, default=10)
+    # 판마다 뇌(연결 1,509만 개)와 렌더러를 따로 올린다. 노트북 16 GB 에서 10개는 메모리가 모자랐다.
+    ap.add_argument("--workers", type=int, default=3)
+    ap.add_argument("--force", action="store_true", help="저장된 판도 다시 굴린다")
     args = ap.parse_args()
 
-    jobs = [(n, v, args.seed) for n in args.scenario for v in args.speeds]
+    allj = [(n, v, args.seed) for n in args.scenario for v in args.speeds]
+    jobs = [j for j in allj if args.force or not os.path.exists(npz_path(j[0], j[1]))]
+    if len(jobs) < len(allj):
+        print(f"저장된 {len(allj) - len(jobs)}판은 다시 안 굴린다 (--force 로 다시)")
     print(f"{len(jobs)}판 · 동시 {min(args.workers, len(jobs))} · 판마다 20분 남짓", flush=True)
-    outs = []
-    with cf.ProcessPoolExecutor(max_workers=min(args.workers, len(jobs))) as ex:
-        for fut in cf.as_completed([ex.submit(run_one, j) for j in jobs]):
-            outs.append(fut.result())
-            n, v, _, _, w = outs[-1]
-            print(f"  끝: {n} {v:.1f} m/s (벽시계 {w / 60:.0f}분)", flush=True)
+    if jobs:
+        with cf.ProcessPoolExecutor(max_workers=min(args.workers, len(jobs))) as ex:
+            for fut in cf.as_completed([ex.submit(run_one, j) for j in jobs]):
+                n, v, w = fut.result()
+                print(f"  끝: {n} {v:.1f} m/s (벽시계 {w / 60:.0f}분)", flush=True)
+    outs = [(n, v, *efm_log(npz_path(n, v))) for n, v, _ in allj]
 
     ctrl_dt = 0.02
     print(f"\n| 대본 | 사람 m/s | 놓침 % | 최장 놓침 s | 걷는 중 최대 m | 끝 m | 최소 m | 판정 |")
     print("|---|---|---|---|---|---|---|---|")
     ok = 0
     order = {n: i for i, n in enumerate(efm.SCENARIOS)}
-    for name, speed, log, done_t, _ in sorted(outs, key=lambda r: (order[r[0]], r[1])):
+    for name, speed, log, done_t in sorted(outs, key=lambda r: (order[r[0]], r[1])):
         s = efm.summarize(log, done_t, ctrl_dt, name)
         ok += s["verdict"] == "OK"
         print(f"| {efm.SCENARIOS[name][0]} | {speed:.1f} | {s['miss']:.0f} | {s['longest']:.1f} "
