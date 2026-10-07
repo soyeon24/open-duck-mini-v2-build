@@ -90,16 +90,17 @@ time with LC9 input and DN rates overlaid.
 Same five walking-person scripts, same verdicts (`eval_follow_moving.summarize`), same walking
 policy (hp0dy2), empty floor, person at 0.1 and 0.2 m/s. The existing follower is
 `MjInfer.follow_step` (`eval_follow_moving.py --speeds 0.1 0.2`); the fly brain is
-`eval_fly_moving.py` (`--no_head` for the first column). Cells are the 0.1 / 0.2 m/s verdicts.
+`eval_fly_moving.py` (`--no_head` for the first fly column). Cells are the 0.1 / 0.2 m/s verdicts.
 
-| Script | Existing follower | Fly, head fixed | Fly, head turns, band-width distance | **Fly, head turns, ground distance** |
-|---|---|---|---|---|
-| Walk away | OK / OK | OK / OK | OK / OK | **OK / OK** |
-| Cross in front | OK / OK | lost / lost | lost / OK | **OK / OK** |
-| Walk away, turn left | OK / OK | lost / lost | lost / OK | **OK / OK** |
-| Walk up to 25 cm | OK / OK | lost / lost | lost / lost | lost / lost |
-| Half circle, r 1 m | OK / OK | lost / lost | too close / OK | lost / lost |
-| **Total** | **10 / 10** | **2 / 10** | **5 / 10** | **6 / 10** |
+| Script | Existing follower | Fly: head fixed | + head turns | + ground distance | **+ input ramp 0.45–0.7 m (default)** |
+|---|---|---|---|---|---|
+| Walk away | OK / OK | OK / OK | OK / OK | OK / OK | **OK / OK** |
+| Cross in front | OK / OK | lost / lost | lost / OK | OK / OK | **OK / OK** |
+| Walk away, turn left | OK / OK | lost / lost | lost / OK | OK / OK | **OK / OK** |
+| Walk up to 25 cm | OK / OK | lost / lost | lost / lost | lost / lost | lost / lost |
+| Half circle, r 1 m | OK / OK | lost / lost | too close / OK | lost / lost | lost / lost |
+| **Total** | **10 / 10** | **2 / 10** | **5 / 10** | **6 / 10** | **6 / 10** |
+| Stop distance, passing runs | 0.63–0.66 m | 0.64–0.67 m | 0.53–0.70 m | 0.69–0.81 m | **0.62–0.71 m** |
 
 What each step changed:
 
@@ -114,13 +115,15 @@ What each step changed:
    fired, and the band dropped below the camera.
 3. **Ground distance (6/10).** The distance now comes from projecting the band onto the floor,
    as the existing follower does. Crossing and turning pass at both speeds without losing the
-   person for a single frame. The half circle now fails: at the true 0.8 m the input is already
-   reduced, and because forward and turning come from the same DNp09 rates, turning weakens with
-   it (about 11°/s against a person circling at 11.5°/s plus the duck's own drift). The head pins
-   at 25° and the person leaves the view at 56°. It passed in column 3 only because the inflated
+   person for a single frame. The half circle passed in column 3 only because the inflated
    distance kept the input high.
+4. **Input ramp moved in, 0.9 → 0.7 m (6/10).** The stop distance now matches the existing
+   follower. The half circle still fails, and the reason turned out not to be the input. Near
+   the person the readout asks for dx ≈ 0.12 and dyaw ≈ 0.2–0.4 rad/s, and the duck turns at
+   0–5°/s. Both commands sit in the walking policy's dead zone, which is already measured in
+   `mujoco_infer.py`: turning on the spot needs a yaw command above 0.5, and forward commands
+   below 0.1 barely move. The person circles at 11.5°/s, the head pins at 25°, and the band leaves
+   the view at 56°. The existing follower jumps the dead zone (it turns on the spot at 0.8).
 
-Still missing, against the existing follower: backing off when someone walks up (no MDN drive is
-wired to closeness), and turning hard while standing still near the person. The next thing to
-try is moving the input ramp in (`--far` 0.9 → 0.7 m), which keeps full input, and so full
-turning, at 0.8 m and should stop the duck near the existing follower's 0.55–0.65 m.
+Still missing, against the existing follower: turning through the policy's dead zone, and backing
+off when someone walks up (no MDN drive is wired to closeness).

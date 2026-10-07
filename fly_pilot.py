@@ -208,7 +208,9 @@ def make_parser():
     g.add_argument("--lc9_hz", type=float, default=200.0, help="한쪽 눈에만 보일 때 그쪽 LC9 자극")
     g.add_argument("--side_deg", type=float, default=3.0, help="방위 ±이 값에서 75%%/25%% 로 나뉜다")
     g.add_argument("--near", type=float, default=0.45, help="이보다 가까우면 자극 0 (m)")
-    g.add_argument("--far", type=float, default=0.9, help="이보다 멀면 자극을 다 준다 (m)")
+    g.add_argument("--far", type=float, default=0.7,
+                   help="이보다 멀면 자극을 다 준다 (m). 0.9 면 0.8 m 에서 입력이 줄어 회전까지 약해져 "
+                        "둘레 반 바퀴를 놓쳤다 (2026-10-07, 바닥 거리 판 6/10)")
     g.add_argument("--tau_ms", type=float, default=150.0, help="발화율 지수 평활 시정수")
     g.add_argument("--kx", type=float, default=0.0035, help="전진 게인 (m/s per Hz)")
     g.add_argument("--ky", type=float, default=0.006, help="회전 게인 (rad/s per Hz)")
