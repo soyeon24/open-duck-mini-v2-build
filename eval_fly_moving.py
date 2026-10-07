@@ -29,7 +29,7 @@ OUT = fly_pilot.OUT
 
 
 def run_one(job):
-    name, speed, seed = job
+    name, speed, seed, head = job
     import contextlib
     import io
     import band_tracker
@@ -38,6 +38,8 @@ def run_one(job):
 
     a = fly_pilot.make_parser().parse_args([])
     a.seed = seed
+    a.head = head
+    a.dist_from = os.environ.get("FLY_DIST_FROM", "ground")
     onnx, rr, dy, fr = resolve_policy(None)
     with contextlib.redirect_stdout(io.StringIO()):
         m = MjInfer(efm.SCENES[efm.scene_of(name)], efm.REFERENCE, onnx, False, rr, dy)
@@ -71,7 +73,7 @@ def run_one(job):
         d = float(np.hypot(rel[0], rel[1]))
         # fly_pilot 재생용 열. 채점 열은 efm_log 가 여기서 다시 만든다
         plog.append((t, d, L["bearing"], m.commands[0], m.commands[2], *L["lc9"],
-                     *(L["R"][(dn, s)] for dn in fly_pilot.DNS for s in ("left", "right"))))
+                     *(L["R"][(dn, s)] for dn in fly_pilot.DNS for s in ("left", "right")), L["head"]))
         qpos.append(m.data.qpos.copy())
         ptraj.append((walker.pos[0], walker.pos[1], walker.heading))
         k += 1
@@ -79,14 +81,14 @@ def run_one(job):
             break
         if t > t_max + 30.0:
             break
-    path = npz_path(name, speed)
+    path = npz_path(name, speed, head)
     np.savez(path, log=np.array(plog), qpos=np.array(qpos), person=np.array(ptraj[0][:2]),
              person_traj=np.array(ptraj), ctrl_dt=ctrl_dt, args=str(vars(a)))
     return name, speed, time.time() - t0
 
 
-def npz_path(name, speed):
-    return os.path.join(OUT, f"fly_moving_{name}_{speed:.1f}.npz")
+def npz_path(name, speed, head):
+    return os.path.join(OUT, f"fly_moving_{name}_{speed:.1f}_{'head' if head else 'nohead'}.npz")
 
 
 def efm_log(path):
@@ -124,10 +126,12 @@ def main():
     # 판마다 뇌(연결 1,509만 개)와 렌더러를 따로 올린다. 노트북 16 GB 에서 10개는 메모리가 모자랐다.
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--force", action="store_true", help="저장된 판도 다시 굴린다")
+    ap.add_argument("--no_head", dest="head", action="store_false",
+                    help="머리를 안 돌린다 (첫 비교 2/10 의 조건)")
     args = ap.parse_args()
 
-    allj = [(n, v, args.seed) for n in args.scenario for v in args.speeds]
-    jobs = [j for j in allj if args.force or not os.path.exists(npz_path(j[0], j[1]))]
+    allj = [(n, v, args.seed, args.head) for n in args.scenario for v in args.speeds]
+    jobs = [j for j in allj if args.force or not os.path.exists(npz_path(j[0], j[1], j[3]))]
     if len(jobs) < len(allj):
         print(f"저장된 {len(allj) - len(jobs)}판은 다시 안 굴린다 (--force 로 다시)")
     print(f"{len(jobs)}판 · 동시 {min(args.workers, len(jobs))} · 판마다 20분 남짓", flush=True)
@@ -136,7 +140,7 @@ def main():
             for fut in cf.as_completed([ex.submit(run_one, j) for j in jobs]):
                 n, v, w = fut.result()
                 print(f"  끝: {n} {v:.1f} m/s (벽시계 {w / 60:.0f}분)", flush=True)
-    outs = [(n, v, *efm_log(npz_path(n, v))) for n, v, _ in allj]
+    outs = [(n, v, *efm_log(npz_path(n, v, h))) for n, v, _, h in allj]
 
     ctrl_dt = 0.02
     print(f"\n| 대본 | 사람 m/s | 놓침 % | 최장 놓침 s | 걷는 중 최대 m | 끝 m | 최소 m | 판정 |")
@@ -148,7 +152,8 @@ def main():
         ok += s["verdict"] == "OK"
         print(f"| {efm.SCENARIOS[name][0]} | {speed:.1f} | {s['miss']:.0f} | {s['longest']:.1f} "
               f"| {s['d_walk']:.2f} | {s['d_end']:.2f} | {s['d_min']:.2f} | {s['verdict']} |")
-    print(f"\nOK {ok}/{len(outs)}  (기존 추종 follow_step 은 빈 바닥 15/15 — SIM_NOTES 09-30)")
+    print(f"\n[머리 {'돌림' if args.head else '고정'}] OK {ok}/{len(outs)}"
+          f"  (같은 10판: 기존 추종 follow_step 10/10, 머리 고정 뇌 2/10 — 2026-10-07)")
 
 
 if __name__ == "__main__":

@@ -88,29 +88,39 @@ time with LC9 input and DN rates overlaid.
 ## A walking person: fly brain vs. the existing follower
 
 Same five walking-person scripts, same verdicts (`eval_follow_moving.summarize`), same walking
-policy (hp0dy2), empty floor. The existing follower is `MjInfer.follow_step` as on `main`
-(`eval_follow_moving.py --speeds 0.1 0.2`); the fly brain is `eval_fly_moving.py`. End distance is
-the mean over the last 3 s; "lost" is the longest run of frames without the band.
+policy (hp0dy2), empty floor, person at 0.1 and 0.2 m/s. The existing follower is
+`MjInfer.follow_step` (`eval_follow_moving.py --speeds 0.1 0.2`); the fly brain is
+`eval_fly_moving.py` (`--no_head` for the first column). Cells are the 0.1 / 0.2 m/s verdicts.
 
-| Script | Person m/s | Existing: lost / end m | Existing | Fly: lost / end m | Fly |
-|---|---|---|---|---|---|
-| Walk away | 0.1 | 0.0 s / 0.65 | OK | 0.0 s / 0.64 | **OK** |
-| Walk away | 0.2 | 0.0 s / 0.65 | OK | 0.0 s / 0.67 | **OK** |
-| Cross in front | 0.1 | 0.0 s / 0.65 | OK | 14.0 s / 0.48 | lost |
-| Cross in front | 0.2 | 0.0 s / 0.66 | OK | 16.7 s / 1.05 | lost, too far |
-| Walk away, turn left | 0.1 | 0.0 s / 0.66 | OK | 13.6 s / 0.46 | lost |
-| Walk away, turn left | 0.2 | 0.0 s / 0.64 | OK | 10.3 s / 0.39 | lost |
-| Walk up to 25 cm | 0.1 | 9.4 s / 0.66 | OK | 17.7 s / 0.25 | lost, too close |
-| Walk up to 25 cm | 0.2 | 6.9 s / 0.65 | OK | 16.3 s / 0.25 | lost, too close |
-| Half circle, r 1 m | 0.1 | 0.0 s / 0.65 | OK | 41.1 s / 1.68 | lost, too far |
-| Half circle, r 1 m | 0.2 | 0.0 s / 0.64 | OK | 27.5 s / 1.36 | lost, too far |
-| **Total** | | | **10 / 10** | | **2 / 10** |
+| Script | Existing follower | Fly, head fixed | Fly, head turns, band-width distance | **Fly, head turns, ground distance** |
+|---|---|---|---|---|
+| Walk away | OK / OK | OK / OK | OK / OK | **OK / OK** |
+| Cross in front | OK / OK | lost / lost | lost / OK | **OK / OK** |
+| Walk away, turn left | OK / OK | lost / lost | lost / OK | **OK / OK** |
+| Walk up to 25 cm | OK / OK | lost / lost | lost / lost | lost / lost |
+| Half circle, r 1 m | OK / OK | lost / lost | too close / OK | lost / lost |
+| **Total** | **10 / 10** | **2 / 10** | **5 / 10** | **6 / 10** |
 
-The fly brain keeps up exactly as long as the person stays inside the camera's ±31° field of view:
-walking straight away it matches the existing follower to the centimetre. Every failure starts with
-the band leaving the image sideways, and the brain then has no input and stands still. The
-existing follower does three things the fly wiring does not: it turns the head to keep the person
-in view, it remembers where the person was and turns or walks there, and it backs off when someone
-walks up. Those are what to give the fly next. The cheapest one is the head: the fly's own neck
-motor neurons could drive the head yaw.
+What each step changed:
 
+1. **Head fixed (2/10).** The brain keeps up exactly while the person stays inside the camera's
+   ±31° view. Every failure starts with the band leaving the image sideways; with no input the
+   brain goes quiet and the duck stands still.
+2. **Head turns (5/10).** The head is turned outside the brain to keep the person centred, within
+   ±25° (the existing follower's limit), and the brain receives the bearing in the body frame
+   (image bearing + head yaw). Crossing and turning now work at 0.2 m/s but not at 0.1. At 0.1 the
+   duck caught up and kept going to 0.39 m: the distance came from the band's width, which doubles
+   when the two ankles overlap seen from the side, so the "reduce input when close" rule never
+   fired, and the band dropped below the camera.
+3. **Ground distance (6/10).** The distance now comes from projecting the band onto the floor,
+   as the existing follower does. Crossing and turning pass at both speeds without losing the
+   person for a single frame. The half circle now fails: at the true 0.8 m the input is already
+   reduced, and because forward and turning come from the same DNp09 rates, turning weakens with
+   it (about 11°/s against a person circling at 11.5°/s plus the duck's own drift). The head pins
+   at 25° and the person leaves the view at 56°. It passed in column 3 only because the inflated
+   distance kept the input high.
+
+Still missing, against the existing follower: backing off when someone walks up (no MDN drive is
+wired to closeness), and turning hard while standing still near the person. The next thing to
+try is moving the input ramp in (`--far` 0.9 → 0.7 m), which keeps full input, and so full
+turning, at 0.8 m and should stop the duck near the existing follower's 0.55–0.65 m.

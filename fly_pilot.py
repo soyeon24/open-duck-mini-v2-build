@@ -66,14 +66,30 @@ class FlyPilot:
         m, a = self.m, self.a
         img = m.render_head()
         res = band_tracker.track(img, float(m.model.cam_fovy[m.follow_cam_id]))
+        head_yaw = float(np.degrees(m.data.qpos[m.model.joint("head_yaw").qposadr[0]]))
         if res is None:
             l = r = 0.0
             bearing = dist = float("nan")
+            # 안 보이면 머리는 마지막으로 돌린 자리에 둔다 (사람이 사라진 쪽을 계속 본다).
         else:
-            bearing, dist = res["bearing_deg"], res["distance_m"]
+            # 몸통 기준 방향 = 화면 속 방위 + 머리 각도. 머리를 돌려도 뇌가 받는 좌우는 몸 기준이다.
+            bearing = res["bearing_deg"] + (head_yaw if a.head else 0.0)
+            dist = res["distance_m"]
+            if a.dist_from == "ground":
+                # 밴드를 바닥 높이로 투영한 위치에서 잰다 — 기존 추종(follow_step)과 같은 거리.
+                # 밴드 폭 거리는 옆에서 보면 두 발목이 겹쳐 2배로 부푼다. 그 거리로는 0.4 m 에서도
+                # 자극이 그대로라 오리가 파고들어 밴드가 카메라 아래로 빠졌다 (2026-10-07, 0.1 m/s 판들).
+                pxy = m._person_xy(res, img)
+                if pxy is not None:
+                    dist = float(np.hypot(*(np.asarray(pxy) - m.data.cam_xpos[m.follow_cam_id][:2])))
             near = np.clip((dist - a.near) / (a.far - a.near), 0.0, 1.0)
             pl = 1.0 / (1.0 + np.exp(-bearing / (a.side_deg / np.log(3))))
             l, r = a.lc9_hz * near * pl, a.lc9_hz * near * (1 - pl)
+            if a.head:
+                # 머리는 뇌 밖에서 사람을 화면 가운데 둔다 — 기존 추종(mujoco_infer)의 머리와 같은
+                # 방식·같은 한계(±25°). 다른 점은 사람만 본다는 것 (기존은 갈 방향과 반반, 바닥스캔 때문).
+                m.direct_head = True
+                m.commands[5] = float(np.radians(np.clip(bearing, -a.head_max, a.head_max)))
         self.B.set_stim([(self.lc9["left"], l), (self.lc9["right"], r)])
         c = self.B.run(self.ctrl_ms)
         for k, ids in self.dn.items():
@@ -87,7 +103,7 @@ class FlyPilot:
         m.commands[0] = float(np.clip(fwd, m.COMMANDS_RANGE_X[0], m.COMMANDS_RANGE_X[1]))
         m.commands[1] = 0.0
         m.commands[2] = float(np.clip(yaw, -1.0, 1.0))
-        self.last = dict(bearing=bearing, dist=dist, lc9=(l, r), R=dict(R))
+        self.last = dict(bearing=bearing, dist=dist, lc9=(l, r), R=dict(R), head=head_yaw)
         m.control_step()
 
 
@@ -165,11 +181,12 @@ def replay(path, loop=True):
                 g = L[k]
                 b = "안 보임" if not np.isfinite(g[2]) else f"{g[2]:+.0f}°"
                 v.set_texts([(mujoco.mjtFontScale.mjFONTSCALE_150, mujoco.mjtGridPos.mjGRID_TOPLEFT,
-                              "time\nperson\nbearing\nLC9 in  L / R\nDNp09    L / R\nDNa02    L / R\n"
-                              "command dx / yaw",
+                              "time\nperson\nbearing (body)\nLC9 in  L / R\nDNp09    L / R\n"
+                              "DNa02    L / R\ncommand dx / yaw" + ("\nhead yaw" if len(g) > 13 else ""),
                               f"{g[0]:.1f} s\n{g[1]:.2f} m\n{b}\n{g[5]:.0f} / {g[6]:.0f} Hz\n"
                               f"{g[7]:.0f} / {g[8]:.0f} Hz\n{g[9]:.0f} / {g[10]:.0f} Hz\n"
-                              f"{g[3]:+.3f} / {g[4]:+.2f}")])
+                              f"{g[3]:+.3f} / {g[4]:+.2f}"
+                              + (f"\n{g[13]:+.0f}°" if len(g) > 13 else ""))])
                 v.sync()
                 time.sleep(max(0.0, dt - (time.time() - t0)))
             if not loop:
@@ -196,6 +213,11 @@ def make_parser():
     g.add_argument("--kx", type=float, default=0.0035, help="전진 게인 (m/s per Hz)")
     g.add_argument("--ky", type=float, default=0.006, help="회전 게인 (rad/s per Hz)")
     g.add_argument("--kb", type=float, default=0.004, help="MDN 후진 게인")
+    g.add_argument("--no_head", dest="head", action="store_false",
+                   help="머리를 안 돌린다 (2026-10-07 첫 비교 2/10 이 이 조건)")
+    g.add_argument("--head_max", type=float, default=25.0, help="머리 요 한계 (도). 기존 추종과 같다")
+    g.add_argument("--dist_from", choices=["ground", "width"], default="ground",
+                   help="거리: 밴드 바닥 투영(기존 추종과 같음) / 밴드 폭 (옆에서 2배로 부푼다)")
     return ap
 
 
