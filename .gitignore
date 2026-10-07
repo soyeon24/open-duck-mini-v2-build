@@ -34,3 +34,6 @@ head_cam_out/
 
 # 잡의 중간 체크포인트 전부 (채점용, 잡당 15개 x 0.9 MB). 고른 것만 from_ubai/ 에 이름 붙여 커밋한다
 from_ubai/ckpt/
+
+# FlyWire 783 connectome (downloaded, ~136 MB)
+flybrain/data/
