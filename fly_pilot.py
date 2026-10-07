@@ -140,6 +140,7 @@ def run(a):
 def replay(path, loop=True):
     z = np.load(path)
     L, Q, p, dt = z["log"], z["qpos"], z["person"], float(z["ctrl_dt"])
+    P = z["person_traj"] if "person_traj" in z else None
     from playground.open_duck_mini_v2 import base
     from etils import epath
     model = mujoco.MjModel.from_xml_string(epath.Path(SCENE).read_text(), assets=base.get_assets())
@@ -156,6 +157,10 @@ def replay(path, loop=True):
                     break
                 t0 = time.time()
                 data.qpos[:] = Q[k]
+                if P is not None:     # 걷는 사람 대본 (eval_fly_moving.py)
+                    data.mocap_pos[0] = [P[k, 0], P[k, 1], 0.0]
+                    h = P[k, 2] / 2.0
+                    data.mocap_quat[0] = [np.cos(h), 0.0, 0.0, np.sin(h)]
                 mujoco.mj_forward(model, data)
                 g = L[k]
                 b = "안 보임" if not np.isfinite(g[2]) else f"{g[2]:+.0f}°"
@@ -172,7 +177,7 @@ def replay(path, loop=True):
             time.sleep(1.0)
 
 
-def main():
+def make_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("-o", "--onnx_model_path", default=None)
     ap.add_argument("--person", type=float, nargs=2, default=[2.0, 0.6])
@@ -191,6 +196,11 @@ def main():
     g.add_argument("--kx", type=float, default=0.0035, help="전진 게인 (m/s per Hz)")
     g.add_argument("--ky", type=float, default=0.006, help="회전 게인 (rad/s per Hz)")
     g.add_argument("--kb", type=float, default=0.004, help="MDN 후진 게인")
+    return ap
+
+
+def main():
+    ap = make_parser()
     a = ap.parse_args()
     if a.replay:
         replay(os.path.join(CWD0, a.replay))
