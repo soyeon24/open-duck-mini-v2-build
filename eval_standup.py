@@ -55,7 +55,25 @@ class StandupEval(MJInferBase):
         super().__init__(scene)
         self.sim_dt = 0.002
         self.decimation = 10
-        self.action_scale = 0.25
+        # standup.py 와 같은 STANDUP_ACTION 을 읽는다 (안 주면 0.25 — v1~v6 와 같다).
+        # "full" 이면 다리마다 관절 범위 양 끝까지 닿는 폭, 머리는 0.25 (10-09, v7~).
+        mode = os.environ.get("STANDUP_ACTION", "")
+        self.action_scale = np.full(self.model.nu, 0.25)
+        _jid = [self.model.actuator_trnid[a][0] for a in range(self.model.nu)]
+        self.ctrl_lo = np.array([self.model.jnt_range[j][0] for j in _jid])
+        self.ctrl_hi = np.array([self.model.jnt_range[j][1] for j in _jid])
+        self.delta = mode == "delta"     # 직전 목표 + action × 한 스텝 최대 이동 (v8~)
+        self.leak = float(os.environ.get("STANDUP_LEAK", "0.0"))   # v10~: 목표를 home 쪽으로 되돌리는 비율
+        if mode and not self.delta:
+            legs = [0, 1, 2, 3, 4, 9, 10, 11, 12, 13]
+            if mode == "full":
+                jid = [self.model.actuator_trnid[a][0] for a in range(self.model.nu)]
+                lo = np.array([self.model.jnt_range[j][0] for j in jid])
+                hi = np.array([self.model.jnt_range[j][1] for j in jid])
+                home = np.array(self.model.keyframe("home").ctrl)
+                self.action_scale[legs] = np.maximum(home - lo, hi - home)[legs]
+            else:
+                self.action_scale[legs] = float(mode)
         self.dof_vel_scale = 0.05
         self.max_motor_velocity = 5.24  # rad/s
         self.policy = OnnxInfer(onnx_path, awd=True)
@@ -149,6 +167,11 @@ class StandupEval(MJInferBase):
         elif bank_idx >= 0:
             self.reset_from_bank(bank_idx)
         # bank_idx < 0 이면 호출한 쪽이 이미 상태를 세팅해 둔 것이므로 건드리지 않는다
+        if self.delta:
+            # standup.py 의 delta 판 reset 과 같게: 서보 목표를 지금 자세에서 시작한다
+            jt = np.clip(self.get_actuator_joints_qpos(self.data.qpos), self.ctrl_lo, self.ctrl_hi)
+            self.motor_targets = jt.copy()
+            self.prev_motor_targets = jt.copy()
         n_ctrl = int(duration / (self.sim_dt * self.decimation))
         ups = np.zeros(n_ctrl)
         heights = np.zeros(n_ctrl)
@@ -166,11 +189,17 @@ class StandupEval(MJInferBase):
             self.last_last_action = self.last_action.copy()
             self.last_action = action.copy()
 
-            targets = self.default_actuator + action * self.action_scale
             lim = self.max_motor_velocity * (self.sim_dt * self.decimation)
-            self.motor_targets = np.clip(
-                targets, self.prev_motor_targets - lim, self.prev_motor_targets + lim
-            )
+            if self.delta:
+                self.motor_targets = np.clip(
+                    self.prev_motor_targets + action * lim
+                    - self.leak * (self.prev_motor_targets - self.default_actuator),
+                    self.ctrl_lo, self.ctrl_hi)
+            else:
+                targets = self.default_actuator + action * self.action_scale
+                self.motor_targets = np.clip(
+                    targets, self.prev_motor_targets - lim, self.prev_motor_targets + lim
+                )
             self.prev_motor_targets = self.motor_targets.copy()
             self.data.ctrl[:] = self.motor_targets
 
